@@ -4,6 +4,7 @@ package protocol
 import (
 	"context"
 	"crypto/ecdsa"
+	"github.com/status-im/status-go/multiaccounts/accounts"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -71,7 +72,7 @@ func (s *MessengerContactUpdateSuite) TestReceiveContactUpdate() {
 	s.Require().NoError(err)
 
 	// Set ENS name
-	err = theirMessenger.settings.SaveSetting("preferred-name", theirName)
+	err = theirMessenger.settings.SaveSetting(accounts.PreferredName.GetReactName(), theirName)
 	s.Require().NoError(err)
 
 	theirContactID := types.EncodeHex(crypto.FromECDSAPub(&theirMessenger.identity.PublicKey))
