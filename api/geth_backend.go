@@ -27,6 +27,7 @@ import (
 	"github.com/status-im/status-go/logutils"
 	"github.com/status-im/status-go/multiaccounts"
 	"github.com/status-im/status-go/multiaccounts/accounts"
+	"github.com/status-im/status-go/multiaccounts/settings"
 	"github.com/status-im/status-go/node"
 	"github.com/status-im/status-go/nodecfg"
 	"github.com/status-im/status-go/params"
@@ -543,7 +544,7 @@ func (b *GethStatusBackend) ChangeDatabasePassword(keyUID string, password strin
 	return nil
 }
 
-func (b *GethStatusBackend) ConvertToKeycardAccount(keyStoreDir string, account multiaccounts.Account, settings accounts.Settings, password string, newPassword string) error {
+func (b *GethStatusBackend) ConvertToKeycardAccount(keyStoreDir string, account multiaccounts.Account, s settings.Settings, password string, newPassword string) error {
 	err := b.multiaccountsDB.UpdateAccountKeycardPairing(account)
 	if err != nil {
 		return err
@@ -558,22 +559,22 @@ func (b *GethStatusBackend) ConvertToKeycardAccount(keyStoreDir string, account 
 	if err != nil {
 		return err
 	}
-	err = accountDB.SaveSetting(accounts.KeycardInstanceUID.GetReactName(), settings.KeycardInstanceUID)
+	err = accountDB.SaveSetting(settings.KeycardInstanceUID.GetReactName(), s.KeycardInstanceUID)
 	if err != nil {
 		return err
 	}
 
-	err = accountDB.SaveSetting(accounts.KeycardPairedOn.GetReactName(), settings.KeycardPAiredOn)
+	err = accountDB.SaveSetting(settings.KeycardPairedOn.GetReactName(), s.KeycardPAiredOn)
 	if err != nil {
 		return err
 	}
 
-	err = accountDB.SaveSetting(accounts.KeycardPairing.GetReactName(), settings.KeycardPairing)
+	err = accountDB.SaveSetting(settings.KeycardPairing.GetReactName(), s.KeycardPairing)
 	if err != nil {
 		return err
 	}
 
-	err = accountDB.SaveSetting(accounts.Mnemonic.GetReactName(), nil)
+	err = accountDB.SaveSetting(settings.Mnemonic.GetReactName(), nil)
 	if err != nil {
 		return err
 	}
@@ -620,7 +621,7 @@ func (b *GethStatusBackend) VerifyDatabasePassword(keyUID string, password strin
 	return nil
 }
 
-func (b *GethStatusBackend) SaveAccountAndStartNodeWithKey(acc multiaccounts.Account, password string, settings accounts.Settings, nodecfg *params.NodeConfig, subaccs []accounts.Account, keyHex string) error {
+func (b *GethStatusBackend) SaveAccountAndStartNodeWithKey(acc multiaccounts.Account, password string, settings settings.Settings, nodecfg *params.NodeConfig, subaccs []accounts.Account, keyHex string) error {
 	err := b.SaveAccount(acc)
 	if err != nil {
 		return err
@@ -642,7 +643,7 @@ func (b *GethStatusBackend) SaveAccountAndStartNodeWithKey(acc multiaccounts.Acc
 func (b *GethStatusBackend) StartNodeWithAccountAndInitialConfig(
 	account multiaccounts.Account,
 	password string,
-	settings accounts.Settings,
+	settings settings.Settings,
 	nodecfg *params.NodeConfig,
 	subaccs []accounts.Account,
 ) error {
@@ -661,7 +662,7 @@ func (b *GethStatusBackend) StartNodeWithAccountAndInitialConfig(
 	return b.StartNodeWithAccount(account, password, nil)
 }
 
-func (b *GethStatusBackend) saveAccountsAndSettings(settings accounts.Settings, nodecfg *params.NodeConfig, subaccs []accounts.Account) error {
+func (b *GethStatusBackend) saveAccountsAndSettings(settings settings.Settings, nodecfg *params.NodeConfig, subaccs []accounts.Account) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	accdb, err := accounts.NewDB(b.appDB)

@@ -76,7 +76,11 @@ func (b *StatusNode) initServices(config *params.NodeConfig) error {
 	services = appendIf(config.ENSConfig.Enabled, services, b.ensService())
 	services = appendIf(config.PermissionsConfig.Enabled, services, b.permissionsService())
 	services = appendIf(config.MailserversConfig.Enabled, services, b.mailserversService())
-	services = appendIf(config.Web3ProviderConfig.Enabled, services, b.providerService())
+	ps, err := b.providerService()
+	if err != nil {
+		return err
+	}
+	services = appendIf(config.Web3ProviderConfig.Enabled, services, ps)
 
 	if config.WakuConfig.Enabled {
 		wakuService, err := b.wakuService(&config.WakuConfig, &config.ClusterConfig)
@@ -391,11 +395,16 @@ func (b *StatusNode) mailserversService() *mailservers.Service {
 	return b.mailserversSrvc
 }
 
-func (b *StatusNode) providerService() *web3provider.Service {
-	if b.providerSrvc == nil {
-		b.providerSrvc = web3provider.NewService(b.appDB, b.rpcClient, b.config, b.gethAccountManager, b.rpcFiltersSrvc, b.transactor)
+func (b *StatusNode) providerService() (*web3provider.Service, error) {
+	web3S, err := web3provider.NewService(b.appDB, b.rpcClient, b.config, b.gethAccountManager, b.rpcFiltersSrvc, b.transactor)
+	if err != nil {
+		return nil, err
 	}
-	return b.providerSrvc
+
+	if b.providerSrvc == nil {
+		b.providerSrvc = web3S
+	}
+	return b.providerSrvc, nil
 }
 
 func (b *StatusNode) appmetricsService() common.StatusService {
