@@ -5,11 +5,14 @@ import (
 	"crypto/ecdsa"
 	"database/sql"
 	"errors"
+	"log"
+	"fmt"
 
 	"github.com/golang/protobuf/proto"
 	"go.uber.org/zap"
 
 	"github.com/status-im/status-go/eth-node/crypto"
+	"github.com/status-im/status-go/eth-node/types"
 	"github.com/status-im/status-go/protocol/common"
 	"github.com/status-im/status-go/protocol/protobuf"
 )
@@ -344,4 +347,103 @@ func (p *Persistence) SetSyncClock(id []byte, clock uint64) error {
 func (p *Persistence) SetPrivateKey(id []byte, privKey *ecdsa.PrivateKey) error {
 	_, err := p.db.Exec(`UPDATE communities_communities SET private_key = ? WHERE id = ?`, crypto.FromECDSA(privKey), id)
 	return err
+}
+
+func (p *Persistence) SaveWakuMessage(message *types.Message) error {
+  log.Println("USING TOPIC: ", message.Topic.String())
+  _, err := p.db.Exec(`INSERT INTO waku_messages (sig, timestamp, topic, payload, padding, hash) VALUES (?, ?, ?, ?, ?, ?)`,
+    message.Sig,
+    message.Timestamp,
+    message.Topic.String(),
+    message.Payload,
+    message.Padding,
+    message.Hash,
+  )
+  return err
+}
+
+func (p *Persistence) GetOldestWakuMessageTimestamp(topics []types.TopicType) (uint64, error) {
+  var timestamp sql.NullInt64
+  query := "SELECT MIN(timestamp) FROM waku_messages WHERE "
+  for i, topic := range topics {
+    query += `topic = "` + topic.String() + `"`
+    if i < len(topics)-1 {
+      query += " OR "
+    }
+  }
+  err := p.db.QueryRow(query).Scan(&timestamp)
+  return uint64(timestamp.Int64), err
+}
+
+
+func (p *Persistence) GetWakuMessagesByFilterTopic(topics []types.TopicType, from uint64, to uint64) ([]types.Message, error) {
+
+  query := "SELECT sig, timestamp, topic, payload, padding, hash FROM waku_messages WHERE timestamp >= " + fmt.Sprint(from) + " AND timestamp < "+ fmt.Sprint(to) + " AND ("
+
+  for i, topic := range topics {
+    query += `topic = "` + topic.String() + `"`
+    if i < len(topics)-1 {
+      query += " OR "
+    }
+  }
+
+  query += ")"
+
+  // rows, err := p.db.Query("SELECT sig, timestamp, topic, payload, padding, hash FROM waku_messages WHERE topic = ? AND timestamp >= ? AND timestamp < ?", topic.String(), from, to)
+
+  // log.Println("USING QUERY: ", query)
+  rows, err := p.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+  messages := []types.Message{}
+
+  for rows.Next() {
+    msg := types.Message{}
+    var topicStr string
+    err := rows.Scan(&msg.Sig, &msg.Timestamp, &topicStr, &msg.Payload, &msg.Padding, &msg.Hash)
+    if err != nil {
+      return nil, err
+    }
+    msg.Topic = types.StringToTopic(topicStr)
+    messages = append(messages, msg)
+  }
+
+  return messages, nil
+}
+
+func (p *Persistence) UpdateLastMessageArchiveEndDate(communityID types.HexBytes, endDate uint64) error {
+  _, err := p.db.Exec(`UPDATE communities_settings SET
+    last_message_archive_end_date = ?
+    WHERE community_id = ?`,
+    endDate,
+    communityID.String())
+  return err
+}
+
+func (p *Persistence) GetLastMessageArchiveEndDate(communityID types.HexBytes) (uint64, error) {
+
+  var lastMessageArchiveEndDate uint64
+  err := p.db.QueryRow(`SELECT last_message_archive_end_date FROM communities_settings WHERE community_id = ?`, communityID.String()).Scan(&lastMessageArchiveEndDate)
+  return lastMessageArchiveEndDate, err
+}
+
+func (p *Persistence) GetCommunityChatIDs(communityID types.HexBytes) ([]string, error) {
+  rows, err := p.db.Query(`SELECT id FROM chats WHERE community_id = ?`, communityID.String())
+  if err != nil {
+    return nil, err
+  }
+  defer rows.Close()
+
+  ids := []string{}
+  for rows.Next() {
+    id := ""
+    err := rows.Scan(&id)
+    if err != nil {
+      return nil, err
+    }
+    ids = append(ids, id)
+  }
+  return ids, nil
 }

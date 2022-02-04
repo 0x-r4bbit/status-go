@@ -263,6 +263,8 @@ func (m *StatusMessage) HandleApplication() error {
 		return m.unmarshalProtobufData(new(protobuf.SyncActivityCenterAccepted))
 	case protobuf.ApplicationMetadataMessage_SYNC_ACTIVITY_CENTER_DISMISSED:
 		return m.unmarshalProtobufData(new(protobuf.SyncActivityCenterDismissed))
+  case protobuf.ApplicationMetadataMessage_COMMUNITY_ARCHIVE_MAGNETLINK:
+		return m.unmarshalProtobufData(new(protobuf.CommunityMessageArchiveMagnetlink))
 	}
 	return nil
 }

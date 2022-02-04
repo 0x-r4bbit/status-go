@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"sync"
 	"time"
+  "log"
 
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/pkg/errors"
@@ -374,7 +375,7 @@ func NewMessenger(
 
 	ensVerifier := ens.New(node, logger, transp, database, c.verifyENSURL, c.verifyENSContractAddress)
 
-	communitiesManager, err := communities.NewManager(&identity.PublicKey, database, logger, ensVerifier)
+	communitiesManager, err := communities.NewManager(&identity.PublicKey, database, logger, ensVerifier, transp)
 	if err != nil {
 		return nil, err
 	}
@@ -1183,7 +1184,7 @@ func (m *Messenger) Init() error {
 	}
 	for _, org := range joinedCommunities {
 		// the org advertise on the public topic derived by the pk
-		publicChatIDs = append(publicChatIDs, org.IDString())
+		publicChatIDs = append(publicChatIDs, org.IDString(), org.MagnetlinkMessageChannelID())
 	}
 
 	// Init filters for the communities we are an admin of
@@ -1283,6 +1284,12 @@ func (m *Messenger) Init() error {
 	}
 
 	_, err = m.transport.InitFilters(publicChatIDs, publicKeys)
+
+  // Initialize community message history archive tasks
+  for _, c := range adminCommunities {
+    m.communitiesManager.StartMessageArchiveCreationInterval(c, 45*time.Second)
+  }
+
 	return err
 }
 
@@ -2836,12 +2843,27 @@ func (m *Messenger) handleRetrievedMessages(chatWithMessages map[transport.Filte
 
 	logger := m.logger.With(zap.String("site", "RetrieveAll"))
 
+  adminCommunitiesChatIDs, e := m.communitiesManager.GetAdminCommunitiesChatIDs()
+	if e != nil {
+    logger.Info("failed to retrieve admin communities", zap.Error(e))
+	}
+
 	for filter, messages := range chatWithMessages {
+
 		var processedMessages []string
 		for _, shhMessage := range messages {
 			logger := logger.With(zap.String("hash", types.EncodeHex(shhMessage.Hash)))
 			// Indicates tha all messages in the batch have been processed correctly
 			allMessagesProcessed := true
+
+      if adminCommunitiesChatIDs[filter.ChatID] {
+				logger.Debug("storing waku message")
+        err := m.communitiesManager.StoreWakuMessage(shhMessage)
+        if err != nil {
+          logger.Warn("failed to store waku message", zap.Error(err))
+        }
+      }
+
 			statusMessages, acks, err := m.sender.HandleMessages(shhMessage, true)
 			if err != nil {
 				logger.Info("failed to decode messages", zap.Error(err))
@@ -2924,6 +2946,40 @@ func (m *Messenger) handleRetrievedMessages(chatWithMessages map[transport.Filte
 						logger.Debug("Handling ChatMessage")
 						messageState.CurrentMessageState.Message = msg.ParsedMessage.Interface().(protobuf.ChatMessage)
 						err = m.HandleChatMessage(messageState)
+
+            if (messageState.CurrentMessageState.Message.GetChatId() == "0x0435042a7c33c5de2435cb46b1cb102407a2cc82927368c0249de6decd5ffd93e14b55f563d1f3b5207e567b2d1d939c49c5dfe96e86237d36085bb89515ed1ca3") {
+              log.Println("HANDLING PASCAL's MESSAGE. SENDING MAGNET LINK!")
+
+              magnetLinkMessage := &protobuf.CommunityMessageArchiveMagnetlink{
+                Clock: m.getTimesource().GetCurrentTime(),
+                MagnetUri: "This is supposed to be a magnetlink",
+              }
+
+              ecodedMessage, err := proto.Marshal(magnetLinkMessage)
+              if err != nil {
+                logger.Warn("failed to handle magnetlink message", zap.Error(err))
+                allMessagesProcessed = false
+                continue
+              }
+
+              rawMessage := common.RawMessage{
+                LocalChatID: "0x03beabe5d83f2606ef4376aeef6b17ec0fd8e7e32ec95286a55de1877deee29ec4-magnetlinks",
+                Payload: ecodedMessage,
+                MessageType: protobuf.ApplicationMetadataMessage_COMMUNITY_ARCHIVE_MAGNETLINK,
+                SkipGroupMessageWrap: true,
+              }
+
+              _, err = m.sender.SendPublic(context.Background(), "0x03beabe5d83f2606ef4376aeef6b17ec0fd8e7e32ec95286a55de1877deee29ec4-magnetlinks", rawMessage)
+
+              // _, err = m.dispatchMessage(context.Background(), rawMessage)
+              if err != nil {
+                  log.Println("<<<<< FAILED TO SEND MESSAGE >>>>> ", err)
+                  allMessagesProcessed = false
+              }
+              log.Println("MESSAGE SENT!")
+
+            }
+
 						if err != nil {
 							logger.Warn("failed to handle ChatMessage", zap.Error(err))
 							allMessagesProcessed = false
@@ -3363,6 +3419,17 @@ func (m *Messenger) handleRetrievedMessages(chatWithMessages map[transport.Filte
 							logger.Warn("failed to handle CommunityRequestToJoin", zap.Error(err))
 							continue
 						}
+
+          case protobuf.CommunityMessageArchiveMagnetlink:
+						logger.Debug("Handling CommunityMessageArchiveMagnetlink")
+            log.Println("HANDLING MESSAGE ARCHIVE MAGNET LINK")
+						archiveMessage := msg.ParsedMessage.Interface().(protobuf.CommunityMessageArchiveMagnetlink)
+						err = m.HandleCommunityMessageArchiveMagnetlink(messageState, archiveMessage.MagnetUri)
+						if err != nil {
+							logger.Warn("failed to handle CommunityMessageArchiveMagnetlink", zap.Error(err))
+							continue
+						}
+
 
 					case protobuf.AnonymousMetricBatch:
 						logger.Debug("Handling AnonymousMetricBatch")
@@ -5008,3 +5075,4 @@ func (m *Messenger) getSettings() (accounts.Settings, error) {
 	sDB := accounts.NewDB(m.database)
 	return sDB.GetSettings()
 }
+

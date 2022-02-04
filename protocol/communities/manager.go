@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"log"
 
 	"github.com/golang/protobuf/proto"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/status-im/status-go/protocol/common"
 	"github.com/status-im/status-go/protocol/ens"
 	"github.com/status-im/status-go/protocol/protobuf"
+	"github.com/status-im/status-go/protocol/transport"
 	"github.com/status-im/status-go/protocol/requests"
 )
 
@@ -28,10 +30,12 @@ type Manager struct {
 	ensVerifier     *ens.Verifier
 	identity        *ecdsa.PublicKey
 	logger          *zap.Logger
+  transport       *transport.Transport
 	quit            chan struct{}
+  messageArchiveCreationTasks   map[string]chan struct{}
 }
 
-func NewManager(identity *ecdsa.PublicKey, db *sql.DB, logger *zap.Logger, verifier *ens.Verifier) (*Manager, error) {
+func NewManager(identity *ecdsa.PublicKey, db *sql.DB, logger *zap.Logger, verifier *ens.Verifier, transport *transport.Transport) (*Manager, error) {
 	if identity == nil {
 		return nil, errors.New("empty identity")
 	}
@@ -47,6 +51,8 @@ func NewManager(identity *ecdsa.PublicKey, db *sql.DB, logger *zap.Logger, verif
 		logger:   logger,
 		identity: identity,
 		quit:     make(chan struct{}),
+    transport: transport,
+    messageArchiveCreationTasks: make(map[string]chan struct{}),
 		persistence: &Persistence{
 			logger: logger,
 			db:     db,
@@ -110,6 +116,10 @@ func (m *Manager) Stop() error {
 	for _, c := range m.subscriptions {
 		close(c)
 	}
+
+  for _, t := range m.messageArchiveCreationTasks {
+    close(t)
+  }
 	return nil
 }
 
@@ -915,4 +925,134 @@ func (m *Manager) SetPrivateKey(id []byte, privKey *ecdsa.PrivateKey) error {
 
 func (m *Manager) GetSyncedRawCommunity(id []byte) (*rawCommunityRow, error) {
 	return m.persistence.getSyncedRawCommunity(id)
+}
+
+func (m *Manager) GetAdminCommunitiesChatIDs() (map[string]bool, error) {
+  adminCommunities, err := m.Created()
+  if err != nil {
+    return nil, err
+  }
+
+  chatIDs := make(map[string]bool)
+  for _, c := range adminCommunities {
+    for _, id := range c.ChatIDs() {
+      chatIDs[id] = true
+    }
+  }
+  return chatIDs, nil
+}
+
+func (m *Manager) StoreWakuMessage(message *types.Message) error {
+  return m.persistence.SaveWakuMessage(message)
+}
+
+func (m *Manager) StartMessageArchiveCreationInterval(community *Community, tick time.Duration) {
+
+  _, exists := m.messageArchiveCreationTasks[community.IDString()]
+
+  if !exists {
+    canceler := make(chan struct{})
+    m.messageArchiveCreationTasks[community.IDString()] = canceler
+    go m.runMessageArchiveCreationLoop(community, tick, canceler)
+  }
+}
+
+func (m *Manager) runMessageArchiveCreationLoop(community *Community, tick time.Duration, cancel <-chan struct{}) {
+
+	ticker := time.NewTicker(tick)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+      chatIDs, err := m.persistence.GetCommunityChatIDs(community.ID())
+      if err != nil {
+			  m.logger.Warn("failed to get community chat IDs", zap.Error(err))
+        continue
+      }
+
+      log.Println("CHAT IDS: ", chatIDs)
+
+      if len(chatIDs) == 0 {
+        continue
+      }
+
+      // Determine last message archive end date as start date
+      // for next archives, fallback to oldest waku message timestamp
+      // as canonical start date
+      startDate, err := m.persistence.GetLastMessageArchiveEndDate(community.ID())
+      if err != nil {
+			  m.logger.Warn("failed to get last message archive end date", zap.Error(err))
+        continue
+      }
+
+      topics := []types.TopicType{}
+
+      for _, cid := range chatIDs {
+        topics = append(topics, m.transport.FilterByChatID(cid).Topic)
+      }
+
+      if startDate == 0 {
+        // If we don't have a tracked last message archive end date, it
+        // means we haven't created an archive before, which means
+        // the next thing to look at is the oldest waku message timestamp for
+        // this community
+        log.Println("NO LAST MESSAGE ARCHIVE END DATE, CREATING ARCHIVE FIRST TIME")
+        startDate, err = m.persistence.GetOldestWakuMessageTimestamp(topics)
+        if err != nil {
+          m.logger.Warn("failed to get oldest waku message timestamp", zap.Error(err))
+          continue
+        }
+        if startDate == 0 {
+          log.Println("NO MESSAGES TO ARCHIVE")
+          // This means there's no waku message stored for this community so far,
+          // so no messages exist yet that can be archived
+          continue
+        }
+      }
+
+      to := time.Now()
+      from := time.Unix(int64(startDate), 0)
+      lastTick := to.Add(-tick)
+
+      log.Println("CREATING ARCHIVE TORRENT FROM: ")
+      if to.Sub(from) <= to.Sub(lastTick) {
+        log.Println("LAST TICK", lastTick.String())
+        from = lastTick
+      } else {
+        log.Println(from.String())
+      }
+
+      log.Println("TO: ")
+      fmt.Println(to.Clock())
+      m.createMessageArchiveTorrent(community.ID(), topics, from, to, time.Second*120)
+    case <-cancel:
+      return
+    }
+  }
+}
+
+func (m *Manager) createMessageArchiveTorrent(communityID types.HexBytes, topics []types.TopicType, startDate time.Time, endDate time.Time, partition time.Duration) error {
+  from := startDate
+  to := from.Add(partition)
+  for {
+    if endDate.Sub(from) < partition {
+      break
+    }
+    wakuMessages, err := m.persistence.GetWakuMessagesByFilterTopic(topics, uint64(from.Unix()), uint64(to.Unix()))
+    if err != nil {
+      m.logger.Warn("failed to retreive admin community waku messages", zap.Error(err))
+      return err
+    }
+
+    if len(wakuMessages) > 0 {
+      log.Println("FETCH MESSAGES FOR PARTIION: ", from.String(), " ", to.String())
+      log.Println("MESSAGES: ", len(wakuMessages))
+    }
+
+    from = to
+    to = to.Add(partition)
+
+  }
+  return m.persistence.UpdateLastMessageArchiveEndDate(communityID, uint64(from.Unix()))
 }

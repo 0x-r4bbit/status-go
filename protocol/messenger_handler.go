@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
+	"log"
 
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -624,6 +625,11 @@ func (m *Messenger) HandleCommunityInvitation(state *ReceivedMessageState, signe
 	state.Response.CommunityChanges = append(state.Response.CommunityChanges, communityResponse.Changes)
 
 	return nil
+}
+
+func (m *Messenger) HandleCommunityMessageArchiveMagnetlink(state *ReceivedMessageState, magnetlink string) error {
+  log.Println("TODO: Handle Community Message Archive Magnetlink")
+  return nil
 }
 
 // HandleCommunityRequestToJoin handles an community request to join

@@ -11,12 +11,15 @@ import (
 
 	"github.com/status-im/status-go/eth-node/crypto"
 	"github.com/status-im/status-go/eth-node/types"
+	"github.com/status-im/status-go/params"
 	"github.com/status-im/status-go/protocol/common"
 	"github.com/status-im/status-go/protocol/communities"
 	"github.com/status-im/status-go/protocol/protobuf"
 	"github.com/status-im/status-go/protocol/requests"
 	"github.com/status-im/status-go/protocol/transport"
 )
+
+const messageArchiveCreationInterval = time.Second*15
 
 func (m *Messenger) publishOrg(org *communities.Community) error {
 	m.logger.Debug("publishing org", zap.String("org-id", org.IDString()), zap.Any("org", org))
@@ -133,6 +136,17 @@ func (m *Messenger) JoinedCommunities() ([]*communities.Community, error) {
 
 func (m *Messenger) JoinCommunity(ctx context.Context, communityID types.HexBytes) (*MessengerResponse, error) {
 	mr, err := m.joinCommunity(ctx, communityID)
+	if err != nil {
+		return nil, err
+	}
+
+	communitySettings := params.CommunitySettings{
+		CommunityID:                   communityID.String(),
+		MessageArchiveFetchingEnabled: true,
+		MessageArchiveSeedingEnabled:  false,
+	}
+
+	err = m.settings.SaveCommunitySettings(communitySettings)
 	if err != nil {
 		return nil, err
 	}
@@ -418,6 +432,11 @@ func (m *Messenger) leaveCommunity(communityID types.HexBytes) (*MessengerRespon
 		return nil, err
 	}
 
+	err = m.settings.DeleteCommunitySettings(communityID)
+	if err != nil {
+		return nil, err
+	}
+
 	// Make chat inactive
 	for chatID := range community.Chats() {
 		communityChatID := communityID.String() + chatID
@@ -546,6 +565,16 @@ func (m *Messenger) CreateCommunity(request *requests.CreateCommunity) (*Messeng
 		return nil, err
 	}
 
+	communitySettings, err := request.ToCommunitySettings(community.IDString())
+	if err != nil {
+		return nil, err
+	}
+
+	err = m.settings.SaveCommunitySettings(communitySettings)
+	if err != nil {
+		return nil, err
+	}
+
 	// Init the community filter so we can receive messages on the community
 	_, err = m.transport.InitCommunityFilters([]*ecdsa.PrivateKey{community.PrivateKey()})
 	if err != nil {
@@ -565,6 +594,9 @@ func (m *Messenger) CreateCommunity(request *requests.CreateCommunity) (*Messeng
 		return nil, err
 	}
 
+  // Schedule message archive creation to started at 7 days from now
+  m.communitiesManager.StartMessageArchiveCreationInterval(community, 15*time.Second)
+
 	return response, nil
 }
 
@@ -574,6 +606,16 @@ func (m *Messenger) EditCommunity(request *requests.EditCommunity) (*MessengerRe
 	}
 
 	community, err := m.communitiesManager.EditCommunity(request)
+	if err != nil {
+		return nil, err
+	}
+
+	communitySettings, err := request.ToCommunitySettings(community.IDString())
+	if err != nil {
+		return nil, err
+	}
+
+	err = m.settings.UpdateCommunitySettings(communitySettings)
 	if err != nil {
 		return nil, err
 	}
