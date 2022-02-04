@@ -943,9 +943,14 @@ func (o *Community) StatusUpdatesChannelID() string {
 	return o.IDString() + "-ping"
 }
 
+func (o *Community) MagnetlinkMessageChannelID() string {
+	return o.IDString() + "-magnetlinks"
+}
+
 func (o *Community) DefaultFilters() []string {
 	cID := o.IDString()
-	return []string{cID, cID + "-ping"}
+	mlChannelID := o.MagnetlinkMessageChannelID()
+	return []string{cID, cID + "-ping", mlChannelID}
 }
 
 func (o *Community) PrivateKey() *ecdsa.PrivateKey {
@@ -1269,6 +1274,14 @@ func (o *Community) AddRequestToJoin(request *RequestToJoin) {
 
 func (o *Community) RequestsToJoin() []*RequestToJoin {
 	return o.config.RequestsToJoin
+}
+
+func (o *Community) ChatIDs() []string {
+  var chatIDs []string
+  for id := range o.config.CommunityDescription.Chats {
+    chatIDs = append(chatIDs, o.IDString() + id)
+  }
+  return chatIDs
 }
 
 func emptyCommunityChanges() *CommunityChanges {

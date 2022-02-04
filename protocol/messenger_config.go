@@ -58,6 +58,7 @@ type config struct {
 	account             *multiaccounts.Account
 	clusterConfig       params.ClusterConfig
 	browserDatabase     *browsers.Database
+  torrentConfig       params.TorrentConfig
 
 	verifyTransactionClient  EthClient
 	verifyENSURL             string

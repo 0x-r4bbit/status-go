@@ -374,6 +374,7 @@ func (m *Messenger) connectToMailserver(node *enode.Node) error {
 
 	if nodeConnected {
 		m.logger.Info("Mailserver available")
+    m.EmitMailserverAvailable(m.mailserverCycle.activeMailserver.String())
 		signal.SendMailserverAvailable(m.mailserverCycle.activeMailserver.String())
 	}
 
@@ -432,6 +433,7 @@ func (m *Messenger) connectToStoreNode(node multiaddr.Multiaddr) error {
 
 	if nodeConnected {
 		m.logger.Info("Storenode available")
+    m.EmitMailserverAvailable(m.mailserverCycle.activeStoreNode.Pretty())
 		signal.SendMailserverAvailable(m.mailserverCycle.activeStoreNode.Pretty())
 	}
 
@@ -567,6 +569,7 @@ func (m *Messenger) updateWakuV1PeerStatus() {
 					pInfo.canConnectAfter = time.Now().Add(defaultBackoff)
 					if m.mailserverCycle.activeMailserver != nil && hexID == m.mailserverCycle.activeMailserver.ID().String() {
 						m.logger.Info("Mailserver available")
+            m.EmitMailserverAvailable(m.mailserverCycle.activeMailserver.String())
 						signal.SendMailserverAvailable(m.mailserverCycle.activeMailserver.String())
 					}
 					m.mailserverCycle.peers[hexID] = pInfo
@@ -648,6 +651,23 @@ func (m *Messenger) checkMailserverConnection() {
 	}
 }
 
+func (m *Messenger) EmitMailserverAvailable(peer string) {
+  for cancel, s := range m.mailserverCycle.availabilitySubscriptions {
+    select {
+    case s <- peer:
+    case <- cancel:
+      return
+    }
+  }
+}
+
+func (m *Messenger) SubscribeMailserverAvailable() (chan string, chan struct{}) {
+  c := make (chan string)
+  cancel := make(chan struct{})
+  m.mailserverCycle.availabilitySubscriptions[cancel] = c
+  return c, cancel
+}
+
 func parseNodes(enodes []string) []*enode.Node {
 	var nodes []*enode.Node
 	for _, item := range enodes {
@@ -721,3 +741,4 @@ func getPeerID(addr multiaddr.Multiaddr) (peer.ID, error) {
 	}
 	return peer.Decode(idStr)
 }
+

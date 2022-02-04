@@ -250,6 +250,7 @@ func LoginWithConfig(accountData, password, configJSON string) string {
 
 // SaveAccountAndLogin saves account in status-go database..
 func SaveAccountAndLogin(accountData, password, settingsJSON, configJSON, subaccountData string) string {
+
 	var account multiaccounts.Account
 	err := json.Unmarshal([]byte(accountData), &account)
 	if err != nil {

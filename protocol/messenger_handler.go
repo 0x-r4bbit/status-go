@@ -626,6 +626,30 @@ func (m *Messenger) HandleCommunityInvitation(state *ReceivedMessageState, signe
 	return nil
 }
 
+func (m *Messenger) HandleCommunityMessageArchiveMagnetlink(state *ReceivedMessageState, communityPubKey *ecdsa.PublicKey, magnetlink string) error {
+
+  if m.config.torrentConfig.Enabled {
+    signedByOwnedCommunity, err := m.communitiesManager.IsAdminCommunity(communityPubKey)
+    if err != nil {
+      return err
+    }
+    joinedCommunity, err := m.communitiesManager.IsJoinedCommunity(communityPubKey)
+    if err != nil {
+      return err
+    }
+    // We are only interested in a community archive magnet link
+    // if it originates from a community that the current account is
+    // part of and doesn't own the private key at the same time
+    if !signedByOwnedCommunity && joinedCommunity {
+      err := m.communitiesManager.HandleCommunityMessageArchiveMagnetlink(communityPubKey, magnetlink)
+      if err != nil {
+        return err
+      }
+    }
+  }
+  return nil
+}
+
 // HandleCommunityRequestToJoin handles an community request to join
 func (m *Messenger) HandleCommunityRequestToJoin(state *ReceivedMessageState, signer *ecdsa.PublicKey, requestToJoinProto protobuf.CommunityRequestToJoin) error {
 	if requestToJoinProto.CommunityId == nil {

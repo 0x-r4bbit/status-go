@@ -45,6 +45,8 @@ var (
 	ipcFile          = flag.String("ipcfile", "", "Set IPC file path")
 	pprofEnabled     = flag.Bool("pprof", false, "Enable runtime profiling via pprof")
 	pprofPort        = flag.Int("pprof-port", 52525, "Port for runtime profiling via pprof")
+  communityArchiveSupportEnabled = flag.Bool("community-archives", false, "Enable community history archive support")
+  torrentClientPort = flag.Int("torrent-client-port", 9025, "Port for BitTorrent protocol connections")
 	version          = flag.Bool("version", false, "Print version and dump configuration")
 
 	dataDir    = flag.String("dir", getDefaultDataDir(), "Directory used by node to store data")
@@ -130,6 +132,11 @@ func main() {
 		config.IPCFile = *ipcFile
 	}
 
+  if *communityArchiveSupportEnabled {
+    config.TorrentConfig.Enabled = true
+    config.TorrentConfig.Port = *torrentClientPort
+  }
+
 	// set up logging options
 	setupLogging(config)
 
@@ -211,8 +218,11 @@ func main() {
 			protocol.WithDatabase(db),
 		}
 
+    stdlog.Println("TORRENT ENABLED: ", config.TorrentConfig.Enabled)
+
 		messenger, err := protocol.NewMessenger(
 			config.Name,
+      config.TorrentConfig,
 			identity,
 			gethbridge.NewNodeBridge(backend.StatusNode().GethNode(), backend.StatusNode().WakuService(), backend.StatusNode().WakuV2Service()),
 			installationID.String(),

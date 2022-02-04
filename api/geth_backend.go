@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	stdout "log"
 
 	"github.com/imdario/mergo"
 
@@ -373,6 +374,7 @@ func (b *GethStatusBackend) startNodeWithAccount(acc multiaccounts.Account, pass
 			return err
 		}
 	}
+  stdout.Println("CONFIG: ", nodecfg.TorrentConfig)
 
 	logSettings := logutils.LogSettings{
 		Enabled:         conf.LogEnabled,

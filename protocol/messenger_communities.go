@@ -5,18 +5,22 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"time"
+	"log"
 
 	"github.com/golang/protobuf/proto"
 	"go.uber.org/zap"
 
 	"github.com/status-im/status-go/eth-node/crypto"
 	"github.com/status-im/status-go/eth-node/types"
+	"github.com/status-im/status-go/params"
 	"github.com/status-im/status-go/protocol/common"
 	"github.com/status-im/status-go/protocol/communities"
 	"github.com/status-im/status-go/protocol/protobuf"
 	"github.com/status-im/status-go/protocol/requests"
 	"github.com/status-im/status-go/protocol/transport"
 )
+
+const messageArchiveCreationInterval = time.Second*15
 
 func (m *Messenger) publishOrg(org *communities.Community) error {
 	m.logger.Debug("publishing org", zap.String("org-id", org.IDString()), zap.Any("org", org))
@@ -133,6 +137,17 @@ func (m *Messenger) JoinedCommunities() ([]*communities.Community, error) {
 
 func (m *Messenger) JoinCommunity(ctx context.Context, communityID types.HexBytes) (*MessengerResponse, error) {
 	mr, err := m.joinCommunity(ctx, communityID)
+	if err != nil {
+		return nil, err
+	}
+
+	communitySettings := params.CommunitySettings{
+		CommunityID:                   communityID.String(),
+		MessageArchiveFetchingEnabled: true,
+		MessageArchiveSeedingEnabled:  false,
+	}
+
+	err = m.settings.SaveCommunitySettings(communitySettings)
 	if err != nil {
 		return nil, err
 	}
@@ -418,6 +433,11 @@ func (m *Messenger) leaveCommunity(communityID types.HexBytes) (*MessengerRespon
 		return nil, err
 	}
 
+	err = m.settings.DeleteCommunitySettings(communityID)
+	if err != nil {
+		return nil, err
+	}
+
 	// Make chat inactive
 	for chatID := range community.Chats() {
 		communityChatID := communityID.String() + chatID
@@ -546,6 +566,16 @@ func (m *Messenger) CreateCommunity(request *requests.CreateCommunity) (*Messeng
 		return nil, err
 	}
 
+	communitySettings, err := request.ToCommunitySettings(community.IDString())
+	if err != nil {
+		return nil, err
+	}
+
+	err = m.settings.SaveCommunitySettings(communitySettings)
+	if err != nil {
+		return nil, err
+	}
+
 	// Init the community filter so we can receive messages on the community
 	_, err = m.transport.InitCommunityFilters([]*ecdsa.PrivateKey{community.PrivateKey()})
 	if err != nil {
@@ -565,6 +595,9 @@ func (m *Messenger) CreateCommunity(request *requests.CreateCommunity) (*Messeng
 		return nil, err
 	}
 
+  // Schedule message archive creation to started at 7 days from now
+  // m.communitiesManager.RunHistoryArchiveCreationInterval(community, 15*time.Second)
+
 	return response, nil
 }
 
@@ -574,6 +607,16 @@ func (m *Messenger) EditCommunity(request *requests.EditCommunity) (*MessengerRe
 	}
 
 	community, err := m.communitiesManager.EditCommunity(request)
+	if err != nil {
+		return nil, err
+	}
+
+	communitySettings, err := request.ToCommunitySettings(community.IDString())
+	if err != nil {
+		return nil, err
+	}
+
+	err = m.settings.UpdateCommunitySettings(communitySettings)
 	if err != nil {
 		return nil, err
 	}
@@ -1049,3 +1092,148 @@ func (m *Messenger) handleSyncCommunity(messageState *ReceivedMessageState, sync
 
 	return nil
 }
+
+func (m *Messenger) initCommunityHistoryArchiveTasks(communities []*communities.Community) {
+  mailserverAvailable, unsubscribe  := m.SubscribeMailserverAvailable()
+
+  dispatchMagnetlink := func(communityID types.HexBytes) {
+    _, err := m.dispatchMagnetlinkMessage(communityID)
+    if err != nil {
+      m.logger.Debug("failed to dispatch magnetlink message", zap.Error(err))
+    }
+  }
+
+  select {
+    case <-mailserverAvailable:
+      close(unsubscribe)
+
+      for _, c := range communities {
+        if c.Joined() {
+
+          filters, err := m.communitiesManager.GetCommunityChatsFilters(c.ID())
+          if err != nil {
+            m.logger.Debug("failed to get community chats filters", zap.Error(err))
+            continue
+          }
+
+          if len(filters) == 0 {
+            continue
+          }
+
+          topics := []types.TopicType{}
+
+          for _, filter := range filters {
+            topics = append(topics, filter.Topic)
+          }
+
+          // First we need to know the timestamp of the latest waku message
+          // we've received, so we can request messages we've possibly missed
+          // since then
+          latestWakuMessageTimestamp, err := m.communitiesManager.GetLatestWakuMessageTimestamp(topics)
+
+          if latestWakuMessageTimestamp == 0 {
+            // This means we don't have any waku messages for this community
+            // yet, either because no messages were sent in the community so far,
+            // or because messages haven't reached the this node
+            //
+            // In this case we default to requesting messages from the store nodes
+            // for the past 30 days
+            latestWakuMessageTimestamp = uint64(time.Now().AddDate(0, 0, -30).Unix())
+          }
+
+          // Request possibly missed waku messages for community
+          _, err = m.syncFiltersFrom(filters, uint32(latestWakuMessageTimestamp))
+          if err != nil {
+            m.logger.Debug("failed to request missing messages", zap.Error(err))
+            continue
+          }
+
+          // We figure out the end date of the last created archive and schedule
+          // the interval for creating future archives
+          // If the last end date is at least `interval` ago, we create an archive immediately first
+          lastArchiveEndDateTimestamp, err := m.communitiesManager.GetHistoryArchivePartitionStartTimestamp(c.ID())
+          if err != nil {
+            m.logger.Debug("failed to get archive partition start timestamp", zap.Error(err))
+            continue
+          }
+
+          interval := 5*time.Minute
+          to := time.Now()
+          lastArchiveEndDate := time.Unix(int64(lastArchiveEndDateTimestamp), 0)
+          durationSinceLastArchive := to.Sub(lastArchiveEndDate)
+
+          if lastArchiveEndDateTimestamp == 0 {
+            // No prior messages to be archived, so we just kick off the archive creation loop
+            // for future archives
+            go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval, dispatchMagnetlink)
+          } else if durationSinceLastArchive < interval {
+            // Last archive is less than `interval` old, wait until `interval` is complete,
+            // then create archive and kick off archive creation loop for future archives
+            // Seed current archive in the meantime
+            m.communitiesManager.SeedHistoryArchiveTorrent(c.ID())
+
+            timeToNextInterval := interval - durationSinceLastArchive
+            log.Println(">>>> STARTING HISTORY ARCHIVE INTERVAL IN: ", timeToNextInterval)
+            time.AfterFunc(timeToNextInterval, func() {
+              log.Println(">>>> CREATING ARCHIVE NOW")
+              m.communitiesManager.UnseedHistoryArchiveTorrent(c.ID())
+              m.communitiesManager.CreateHistoryArchiveTorrent(c.ID(), topics, lastArchiveEndDate, to, interval)
+              m.communitiesManager.SeedHistoryArchiveTorrent(c.ID())
+              dispatchMagnetlink(c.ID())
+
+
+              log.Println(">>>> KICKING OFF INTERVAL, SHOULD START IN: ", interval)
+              go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval, dispatchMagnetlink)
+            })
+          } else {
+            // Looks like the last archive was generated more than `interval`
+            // ago, so lets create a new archive now and then schedule the archive
+            // creation loop
+            log.Println(">>>> CREATE ARCHIVE NOW THEN START INTERVAL")
+            m.communitiesManager.CreateHistoryArchiveTorrent(c.ID(), topics, lastArchiveEndDate, to, interval)
+            m.communitiesManager.SeedHistoryArchiveTorrent(c.ID())
+            dispatchMagnetlink(c.ID())
+
+            log.Println(">>>> STARTING INTERVAL NOW, SHOULD KICK IN IN: ", interval)
+            go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval, dispatchMagnetlink)
+          }
+        }
+      }
+  }
+}
+
+func (m *Messenger) dispatchMagnetlinkMessage(communityID types.HexBytes) ([]byte, error) {
+
+  community, err := m.communitiesManager.GetByIDString(communityID.String())
+  if err != nil {
+    return nil, err
+  }
+
+  magnetlink, err := m.communitiesManager.GetHistoryArchiveMagnetlink(communityID)
+  if err != nil {
+    return nil, err
+  }
+
+  magnetLinkMessage := &protobuf.CommunityMessageArchiveMagnetlink{
+    Clock: m.getTimesource().GetCurrentTime(),
+    MagnetUri: magnetlink,
+  }
+
+  encodedMessage, err := proto.Marshal(magnetLinkMessage)
+  if err != nil {
+    return nil, err
+  }
+
+  chatID := community.MagnetlinkMessageChannelID()
+  rawMessage := common.RawMessage{
+    LocalChatID: chatID,
+    Sender: community.PrivateKey(),
+    Payload: encodedMessage,
+    MessageType: protobuf.ApplicationMetadataMessage_COMMUNITY_ARCHIVE_MAGNETLINK,
+    SkipGroupMessageWrap: true,
+  }
+
+  log.Println("DISPATCHING MAGNET LINK MESSAGE!")
+  return m.sender.SendPublic(context.Background(), chatID, rawMessage)
+}
+
