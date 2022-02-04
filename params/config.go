@@ -472,6 +472,8 @@ type NodeConfig struct {
 	// SwarmConfig extra configuration for Swarm and ENS
 	SwarmConfig SwarmConfig `json:"SwarmConfig," validate:"structonly"`
 
+  TorrentConfig TorrentConfig
+
 	// RegisterTopics a list of specific topics where the peer wants to be
 	// discoverable.
 	RegisterTopics []discv5.Topic `json:"RegisterTopics"`
@@ -499,6 +501,13 @@ type Network struct {
 	IsTest                 bool   `json:"isTest"`
 	Layer                  uint64 `json:"layer"`
 	Enabled                bool   `json:"enabled"`
+}
+
+type CommunitySettings struct {
+	CommunityID                   string `json:"communityId"`
+	MessageArchiveFetchingEnabled bool   `json:"messageArchiveFetchingEnabled"`
+	MessageArchiveSeedingEnabled  bool   `json:"messageArchiveSeedingEnabled"`
+  LastMessageArchiveEndDate     int     `json:"lastMessageArchiveEndDate"`
 }
 
 // WalletConfig extra configuration for wallet.Service.
@@ -603,6 +612,18 @@ type ShhextConfig struct {
 
 	// BandwidthStatsEnabled indicates if a signal is going to be emitted to indicate the upload and download rate
 	BandwidthStatsEnabled bool
+}
+
+// TorrentConfig provides configuration for the BitTorrent client used for message history archives.
+type TorrentConfig struct {
+	// Enabled set to true enables Community History Archive protocol
+  Enabled bool
+	// Port number which the BitTorrent client will listen to for conntections
+  Port int
+	// DataDir is the file system folder Status should use for message archive torrent data.
+	DataDir string
+	// TorrentDir is the file system folder Status should use for storing torrent metadata files.
+  TorrentDir string
 }
 
 // Validate validates the ShhextConfig struct and returns an error if inconsistent values are found
@@ -823,6 +844,12 @@ func NewNodeConfig(dataDir string, networkID uint64) (*NodeConfig, error) {
 			BackupDisabledDataDir: dataDir,
 		},
 		SwarmConfig:    SwarmConfig{},
+    TorrentConfig: TorrentConfig{
+      Enabled: false,
+      Port: 9025,
+      DataDir: dataDir + "/archivedata",
+      TorrentDir: dataDir + "/torrents",
+    },
 		RegisterTopics: []discv5.Topic{},
 		RequireTopics:  map[discv5.Topic]Limits{},
 	}
@@ -928,6 +955,17 @@ func (c *NodeConfig) Validate() error {
 		}
 	}
 
+	// Message archive data and torrent directory must be relative to the main data directory
+	// if message archive support is enabled.
+	// if c.TorrentConfig.Enabled {
+	// 	if !strings.HasPrefix(c.TorrentConfig.DataDir, c.DataDir) {
+	// 		return fmt.Errorf("TorrentConfig.DataDir must start with DataDir fragment")
+	// 	}
+	// 	if !strings.HasPrefix(c.TorrentConfig.TorrentDir, c.DataDir) {
+	// 		return fmt.Errorf("TorrentConfig.TorrentDir must start with DataDir fragment")
+	// 	}
+	// }
+
 	if !c.NoDiscovery && len(c.ClusterConfig.BootNodes) == 0 {
 		// No point in running discovery if we don't have bootnodes.
 		// In case we do have bootnodes, NoDiscovery should be true.
@@ -960,6 +998,9 @@ func (c *NodeConfig) validateChildStructs(validate *validator.Validate) error {
 		return err
 	}
 	if err := c.ShhextConfig.Validate(validate); err != nil {
+		return err
+	}
+	if err := c.TorrentConfig.Validate(validate); err != nil {
 		return err
 	}
 	return nil
@@ -1019,6 +1060,21 @@ func (c *SwarmConfig) Validate(validate *validator.Validate) error {
 	}
 
 	return nil
+}
+
+func (c *TorrentConfig) Validate(validate *validator.Validate) error {
+  if !c.Enabled {
+    return nil
+  }
+
+  if err := validate.Struct(c); err != nil {
+    return err
+  }
+
+	if c.Enabled && c.DataDir == "" || c.TorrentDir == "" {
+		return fmt.Errorf("TorrentConfig.DataDir and TorrentConfig.TorrentDir cannot be \"\"")
+  }
+  return nil
 }
 
 func getUpstreamURL(networkID uint64) string {

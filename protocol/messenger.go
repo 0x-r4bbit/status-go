@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"sync"
 	"time"
+  "log"
 
 	"github.com/libp2p/go-libp2p-core/peer"
 
@@ -38,6 +39,7 @@ import (
 	userimage "github.com/status-im/status-go/images"
 	"github.com/status-im/status-go/multiaccounts"
 	"github.com/status-im/status-go/multiaccounts/accounts"
+	"github.com/status-im/status-go/params"
 	"github.com/status-im/status-go/protocol/anonmetrics"
 	"github.com/status-im/status-go/protocol/audio"
 	"github.com/status-im/status-go/protocol/common"
@@ -154,6 +156,7 @@ type mailserverCycle struct {
 	peers            map[string]peerStatus
 	events           chan *p2p.PeerEvent
 	subscription     event.Subscription
+  availabilitySubscriptions map[chan struct{}]chan string
 }
 
 type dbConfig struct {
@@ -209,6 +212,7 @@ func (interceptor EnvelopeEventsInterceptor) MailServerRequestExpired(hash types
 
 func NewMessenger(
 	nodeName string,
+  torrentConfig params.TorrentConfig,
 	identity *ecdsa.PrivateKey,
 	node types.Node,
 	installationID string,
@@ -218,6 +222,7 @@ func NewMessenger(
 	var messenger *Messenger
 
 	c := config{}
+  c.torrentConfig = torrentConfig
 
 	for _, opt := range opts {
 		if err := opt(&c); err != nil {
@@ -379,7 +384,7 @@ func NewMessenger(
 
 	ensVerifier := ens.New(node, logger, transp, database, c.verifyENSURL, c.verifyENSContractAddress)
 
-	communitiesManager, err := communities.NewManager(&identity.PublicKey, database, logger, ensVerifier)
+	communitiesManager, err := communities.NewManager(&identity.PublicKey, database, logger, ensVerifier, transp, c.torrentConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -422,6 +427,7 @@ func NewMessenger(
 		mailservers:                mailservers,
 		mailserverCycle: mailserverCycle{
 			peers: make(map[string]peerStatus),
+      availabilitySubscriptions: make(map[chan struct{}]chan string),
 		},
 		mailserversDatabase:  c.mailserversDatabase,
 		account:              c.account,
@@ -655,6 +661,14 @@ func (m *Messenger) Start() (*MessengerResponse, error) {
 		if err != nil {
 			return nil, err
 		}
+
+
+	  if m.config.torrentConfig.Enabled {
+      adminCommunities, err := m.communitiesManager.Created()
+      if err == nil && len(adminCommunities) > 0 {
+        go m.initCommunityHistoryArchiveTasks(adminCommunities)
+      }
+    }
 	}
 
 	err = m.imageServer.Start()
@@ -1215,7 +1229,7 @@ func (m *Messenger) Init() error {
 	}
 	for _, org := range joinedCommunities {
 		// the org advertise on the public topic derived by the pk
-		publicChatIDs = append(publicChatIDs, org.IDString())
+		publicChatIDs = append(publicChatIDs, org.IDString(), org.MagnetlinkMessageChannelID())
 	}
 
 	// Init filters for the communities we are an admin of
@@ -1229,7 +1243,7 @@ func (m *Messenger) Init() error {
 		adminCommunitiesPks = append(adminCommunitiesPks, c.PrivateKey())
 	}
 
-	_, err = m.transport.InitCommunityFilters(adminCommunitiesPks)
+  _, err = m.transport.InitCommunityFilters(adminCommunitiesPks)
 	if err != nil {
 		return err
 	}
@@ -1315,6 +1329,7 @@ func (m *Messenger) Init() error {
 	}
 
 	_, err = m.transport.InitFilters(publicChatIDs, publicKeys)
+
 	return err
 }
 
@@ -2953,12 +2968,27 @@ func (m *Messenger) handleRetrievedMessages(chatWithMessages map[transport.Filte
 
 	logger := m.logger.With(zap.String("site", "RetrieveAll"))
 
+  adminCommunitiesChatIDs, e := m.communitiesManager.GetAdminCommunitiesChatIDs()
+	if e != nil {
+    logger.Info("failed to retrieve admin communities", zap.Error(e))
+	}
+
 	for filter, messages := range chatWithMessages {
+
 		var processedMessages []string
 		for _, shhMessage := range messages {
 			logger := logger.With(zap.String("hash", types.EncodeHex(shhMessage.Hash)))
 			// Indicates tha all messages in the batch have been processed correctly
 			allMessagesProcessed := true
+
+      if adminCommunitiesChatIDs[filter.ChatID] {
+				logger.Debug("storing waku message")
+        err := m.communitiesManager.StoreWakuMessage(shhMessage)
+        if err != nil {
+          logger.Warn("failed to store waku message", zap.Error(err))
+        }
+      }
+
 			statusMessages, acks, err := m.sender.HandleMessages(shhMessage, true)
 			if err != nil {
 				logger.Info("failed to decode messages", zap.Error(err))
@@ -3041,6 +3071,7 @@ func (m *Messenger) handleRetrievedMessages(chatWithMessages map[transport.Filte
 						logger.Debug("Handling ChatMessage")
 						messageState.CurrentMessageState.Message = msg.ParsedMessage.Interface().(protobuf.ChatMessage)
 						err = m.HandleChatMessage(messageState)
+
 						if err != nil {
 							logger.Warn("failed to handle ChatMessage", zap.Error(err))
 							allMessagesProcessed = false
@@ -3478,6 +3509,7 @@ func (m *Messenger) handleRetrievedMessages(chatWithMessages map[transport.Filte
 						}
 
 					case protobuf.CommunityDescription:
+            log.Println("HANDLING COMMUNITY MESSAGE")
 						logger.Debug("Handling CommunityDescription")
 						err = m.handleCommunityDescription(messageState, publicKey, msg.ParsedMessage.Interface().(protobuf.CommunityDescription), msg.DecryptedPayload)
 						if err != nil {
@@ -3510,6 +3542,15 @@ func (m *Messenger) handleRetrievedMessages(chatWithMessages map[transport.Filte
 							logger.Warn("failed to handle CommunityRequestToJoin", zap.Error(err))
 							continue
 						}
+
+          case protobuf.CommunityMessageArchiveMagnetlink:
+						logger.Debug("Handling CommunityMessageArchiveMagnetlink")
+						magnetlinkMessage := msg.ParsedMessage.Interface().(protobuf.CommunityMessageArchiveMagnetlink)
+						err = m.HandleCommunityMessageArchiveMagnetlink(messageState, publicKey, magnetlinkMessage.MagnetUri)
+            if err != nil {
+              logger.Warn("failed to handle CommunityMessageArchiveMagnetlink", zap.Error(err))
+              continue
+            }
 
 					case protobuf.AnonymousMetricBatch:
 						logger.Debug("Handling AnonymousMetricBatch")

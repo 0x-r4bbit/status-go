@@ -263,7 +263,7 @@ func getPrioritizedBatches() []int {
 	return []int{1, 5, 10}
 }
 
-func (m *Messenger) syncFilters(filters []*transport.Filter) (*MessengerResponse, error) {
+func (m *Messenger) syncFiltersFrom(filters []*transport.Filter, lastRequest uint32) (*MessengerResponse, error) {
 	response := &MessengerResponse{}
 	topicInfo, err := m.mailserversDatabase.Topics()
 	if err != nil {
@@ -311,12 +311,19 @@ func (m *Messenger) syncFilters(filters []*transport.Filter) (*MessengerResponse
 		}
 
 		topicData, ok := topicsData[filter.Topic.String()]
+    var capToDefaultSyncPeriod = true
 		if !ok {
+      if lastRequest == 0 {
+			  lastRequest = defaultPeriodFromNow
+      }
 			topicData = mailservers.MailserverTopic{
 				Topic:       filter.Topic.String(),
 				LastRequest: int(defaultPeriodFromNow),
 			}
-		}
+		} else if lastRequest != 0 {
+      topicData.LastRequest = int(lastRequest)
+      capToDefaultSyncPeriod = false
+    }
 
 		batchID := topicData.LastRequest
 
@@ -342,11 +349,13 @@ func (m *Messenger) syncFilters(filters []*transport.Filter) (*MessengerResponse
 
 		batch, ok := batches[batchID]
 		if !ok {
-			from, err := m.capToDefaultSyncPeriod(uint32(topicData.LastRequest))
-			if err != nil {
-				return nil, err
-			}
-
+      from := uint32(topicData.LastRequest)
+      if capToDefaultSyncPeriod {
+        from, err = m.capToDefaultSyncPeriod(uint32(topicData.LastRequest))
+        if err != nil {
+          return nil, err
+        }
+      }
 			batch = MailserverBatch{From: from, To: to}
 		}
 
@@ -395,6 +404,7 @@ func (m *Messenger) syncFilters(filters []*transport.Filter) (*MessengerResponse
 		m.config.messengerSignalsHandler.HistoryRequestCompleted(requestID)
 	}
 
+
 	err = m.mailserversDatabase.AddTopics(syncedTopics)
 	if err != nil {
 		return nil, err
@@ -437,6 +447,10 @@ func (m *Messenger) syncFilters(filters []*transport.Filter) (*MessengerResponse
 		}
 	}
 	return response, nil
+}
+
+func (m *Messenger) syncFilters(filters []*transport.Filter) (*MessengerResponse, error) {
+  return m.syncFiltersFrom(filters, 0)
 }
 
 func (m *Messenger) calculateGapForChat(chat *Chat, from uint32) (*common.Message, error) {
