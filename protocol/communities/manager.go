@@ -935,11 +935,26 @@ func (m *Manager) GetAdminCommunitiesChatIDs() (map[string]bool, error) {
 
   chatIDs := make(map[string]bool)
   for _, c := range adminCommunities {
-    for _, id := range c.ChatIDs() {
-      chatIDs[id] = true
+    if c.Joined() {
+      for _, id := range c.ChatIDs() {
+        chatIDs[id] = true
+      }
     }
   }
   return chatIDs, nil
+}
+
+func (m *Manager) GetCommunityChatsFilters(communityID types.HexBytes) ([]*transport.Filter, error) {
+  chatIDs, err := m.persistence.GetCommunityChatIDs(communityID)
+  if err != nil {
+    return nil, err
+  }
+
+  filters := []*transport.Filter{}
+  for _, cid := range chatIDs {
+    filters = append(filters, m.transport.FilterByChatID(cid))
+  }
+  return filters, nil
 }
 
 func (m *Manager) StoreWakuMessage(message *types.Message) error {
@@ -965,15 +980,13 @@ func (m *Manager) runMessageArchiveCreationLoop(community *Community, tick time.
 	for {
 		select {
 		case <-ticker.C:
-      chatIDs, err := m.persistence.GetCommunityChatIDs(community.ID())
+      filters, err := m.GetCommunityChatsFilters(community.ID())
       if err != nil {
-			  m.logger.Warn("failed to get community chat IDs", zap.Error(err))
+			  m.logger.Warn("failed to get community chats filters", zap.Error(err))
         continue
       }
 
-      log.Println("CHAT IDS: ", chatIDs)
-
-      if len(chatIDs) == 0 {
+      if len(filters) == 0 {
         continue
       }
 
@@ -988,8 +1001,8 @@ func (m *Manager) runMessageArchiveCreationLoop(community *Community, tick time.
 
       topics := []types.TopicType{}
 
-      for _, cid := range chatIDs {
-        topics = append(topics, m.transport.FilterByChatID(cid).Topic)
+      for _, filter := range filters {
+        topics = append(topics, filter.Topic)
       }
 
       if startDate == 0 {
@@ -1025,7 +1038,7 @@ func (m *Manager) runMessageArchiveCreationLoop(community *Community, tick time.
 
       log.Println("TO: ")
       fmt.Println(to.Clock())
-      m.createMessageArchiveTorrent(community.ID(), topics, from, to, time.Second*120)
+      m.createMessageArchiveTorrent(community.ID(), topics, from, to, time.Second*15)
     case <-cancel:
       return
     }

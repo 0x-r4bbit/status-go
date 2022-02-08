@@ -150,6 +150,7 @@ type mailserverCycle struct {
 	peers            map[string]peerStatus
 	events           chan *p2p.PeerEvent
 	subscription     event.Subscription
+  availabilitySubscriptions []chan string
 }
 
 type dbConfig struct {
@@ -630,6 +631,61 @@ func (m *Messenger) Start() (*MessengerResponse, error) {
 			return nil, err
 		}
 	}
+
+
+  go func() {
+    mailserverAvailable := m.SubscribeMailserverAvailable()
+
+    select {
+    case <-mailserverAvailable:
+      close(mailserverAvailable)
+      log.Println("NOW AVAILABLE!")
+      // Initialize community message history archive tasks
+      adminCommunities, err := m.communitiesManager.Created()
+      if err != nil {
+        log.Println("ERROR GETTING ADMIN COMMUNITIES")
+      }
+
+      for _, c := range adminCommunities {
+        if c.Joined() {
+          filters, _ := m.communitiesManager.GetCommunityChatsFilters(c.ID())
+          from := time.Now().AddDate(0, 0, -7)
+
+          log.Println("SYNC FILTERS FOR COMMUNITIES")
+          log.Println("FROM: ", from.Format(time.UnixDate))
+          log.Println("FOR: ", len(filters))
+          _, err := m.syncFiltersFrom(filters, uint32(from.Unix()))
+
+          if err != nil {
+            log.Println("FAILED TO SYNC FILTERS: ", err)
+          }
+
+          //m.communitiesManager.StartMessageArchiveCreationInterval(c, 45*time.Second)
+        }
+      }
+    }
+  }()
+
+  //// Initialize community message history archive tasks
+	//adminCommunities, err := m.communitiesManager.Created()
+	//if err != nil {
+		//return nil, err
+	//}
+
+  //for _, c := range adminCommunities {
+  //  if c.Joined() {
+  //    filters, _ := m.communitiesManager.GetCommunityChatsFilters(c.ID())
+  //    response, err := m.syncFilters(filters)
+
+  //    if err != nil {
+  //      log.Println("FAILED TO SYNC FILTERS: ", err)
+  //    }
+
+  //    log.Println("RESPONSE: ", response)
+
+  //    //m.communitiesManager.StartMessageArchiveCreationInterval(c, 45*time.Second)
+  //  }
+  //}
 
 	return response, nil
 }
@@ -1198,7 +1254,7 @@ func (m *Messenger) Init() error {
 		adminCommunitiesPks = append(adminCommunitiesPks, c.PrivateKey())
 	}
 
-	_, err = m.transport.InitCommunityFilters(adminCommunitiesPks)
+  _, err = m.transport.InitCommunityFilters(adminCommunitiesPks)
 	if err != nil {
 		return err
 	}
@@ -1284,11 +1340,6 @@ func (m *Messenger) Init() error {
 	}
 
 	_, err = m.transport.InitFilters(publicChatIDs, publicKeys)
-
-  // Initialize community message history archive tasks
-  for _, c := range adminCommunities {
-    m.communitiesManager.StartMessageArchiveCreationInterval(c, 45*time.Second)
-  }
 
 	return err
 }
@@ -2857,6 +2908,7 @@ func (m *Messenger) handleRetrievedMessages(chatWithMessages map[transport.Filte
 			allMessagesProcessed := true
 
       if adminCommunitiesChatIDs[filter.ChatID] {
+        log.Println("OOOOH, THIS IS A COMMUNITY MESSAGE! ", shhMessage)
 				logger.Debug("storing waku message")
         err := m.communitiesManager.StoreWakuMessage(shhMessage)
         if err != nil {

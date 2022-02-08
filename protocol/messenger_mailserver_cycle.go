@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"log"
 
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/multiformats/go-multiaddr"
@@ -369,6 +370,7 @@ func (m *Messenger) connectToMailserver(node *enode.Node) error {
 
 	if nodeConnected {
 		m.logger.Info("Mailserver available")
+    m.EmitMailserverAvailable(m.mailserverCycle.activeMailserver.String())
 		signal.SendMailserverAvailable(m.mailserverCycle.activeMailserver.String())
 	}
 
@@ -427,6 +429,7 @@ func (m *Messenger) connectToStoreNode(node multiaddr.Multiaddr) error {
 
 	if nodeConnected {
 		m.logger.Info("Storenode available")
+    m.EmitMailserverAvailable(m.mailserverCycle.activeStoreNode.Pretty())
 		signal.SendMailserverAvailable(m.mailserverCycle.activeStoreNode.Pretty())
 	}
 
@@ -562,6 +565,7 @@ func (m *Messenger) updateWakuV1PeerStatus() {
 					pInfo.canConnectAfter = time.Now().Add(defaultBackoff)
 					if m.mailserverCycle.activeMailserver != nil && hexID == m.mailserverCycle.activeMailserver.ID().String() {
 						m.logger.Info("Mailserver available")
+            m.EmitMailserverAvailable(m.mailserverCycle.activeMailserver.String())
 						signal.SendMailserverAvailable(m.mailserverCycle.activeMailserver.String())
 					}
 					m.mailserverCycle.peers[hexID] = pInfo
@@ -643,6 +647,22 @@ func (m *Messenger) checkMailserverConnection() {
 	}
 }
 
+func (m *Messenger) EmitMailserverAvailable(peer string) {
+  for _, s := range m.mailserverCycle.availabilitySubscriptions {
+    select {
+    case s <- peer:
+    default:
+    }
+  }
+}
+
+func (m *Messenger) SubscribeMailserverAvailable() chan string {
+  log.Println("SUBSCRIBING")
+  c := make (chan string)
+  m.mailserverCycle.availabilitySubscriptions = append(m.mailserverCycle.availabilitySubscriptions, c)
+  return c
+}
+
 func parseNodes(enodes []string) []*enode.Node {
 	var nodes []*enode.Node
 	for _, item := range enodes {
@@ -716,3 +736,4 @@ func getPeerID(addr multiaddr.Multiaddr) (peer.ID, error) {
 	}
 	return peer.Decode(idStr)
 }
+

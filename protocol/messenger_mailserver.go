@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"log"
 
 	"github.com/pborman/uuid"
 	"github.com/pkg/errors"
@@ -239,7 +240,7 @@ func (m *Messenger) RequestAllHistoricMessages() (*MessengerResponse, error) {
 	return m.syncFilters(m.transport.Filters())
 }
 
-func (m *Messenger) syncFilters(filters []*transport.Filter) (*MessengerResponse, error) {
+func (m *Messenger) syncFiltersFrom(filters []*transport.Filter, lastRequest uint32) (*MessengerResponse, error) {
 	response := &MessengerResponse{}
 	topicInfo, err := m.mailserversDatabase.Topics()
 	if err != nil {
@@ -269,26 +270,38 @@ func (m *Messenger) syncFilters(filters []*transport.Filter) (*MessengerResponse
 		}
 
 		topicData, ok := topicsData[filter.Topic.String()]
+    var capToDefaultSyncPeriod = true
 		if !ok {
-			lastRequest, err := m.defaultSyncPeriodFromNow()
-			if err != nil {
-				return nil, err
-			}
+      if lastRequest == 0 {
+			  lastRequest, err = m.defaultSyncPeriodFromNow()
+        if err != nil {
+          return nil, err
+        }
+      }
 			topicData = mailservers.MailserverTopic{
 				Topic:       filter.Topic.String(),
 				LastRequest: int(lastRequest),
 			}
-		}
+		} else if lastRequest != 0 {
+      topicData.LastRequest = int(lastRequest)
+      capToDefaultSyncPeriod = false
+    }
 
 		batch, ok := batches[topicData.LastRequest]
 		if !ok {
-			from, err := m.capToDefaultSyncPeriod(uint32(topicData.LastRequest))
-			if err != nil {
-				return nil, err
-			}
+      from := uint32(topicData.LastRequest)
+      if capToDefaultSyncPeriod {
+        from, err = m.capToDefaultSyncPeriod(uint32(topicData.LastRequest))
+        if err != nil {
+          return nil, err
+        }
+      }
 
+      log.Println("FROM: ", time.Unix(int64(from), 0).Format(time.UnixDate))
 			batch = MailserverBatch{From: from, To: to}
-		}
+		} else {
+      log.Println("GOT BATCH ALREADY FOR: ", topicData.LastRequest)
+    }
 
 		batch.ChatIDs = append(batch.ChatIDs, chatID)
 		batch.Topics = append(batch.Topics, filter.Topic)
@@ -328,6 +341,8 @@ func (m *Messenger) syncFilters(filters []*transport.Filter) (*MessengerResponse
 		m.config.messengerSignalsHandler.HistoryRequestCompleted(requestID)
 	}
 
+
+  log.Println("ADDING SYNCED TOPICS: ", syncedTopics)
 	err = m.mailserversDatabase.AddTopics(syncedTopics)
 	if err != nil {
 		return nil, err
@@ -370,6 +385,10 @@ func (m *Messenger) syncFilters(filters []*transport.Filter) (*MessengerResponse
 		}
 	}
 	return response, nil
+}
+
+func (m *Messenger) syncFilters(filters []*transport.Filter) (*MessengerResponse, error) {
+  return m.syncFiltersFrom(filters, 0)
 }
 
 func (m *Messenger) calculateGapForChat(chat *Chat, from uint32) (*common.Message, error) {
@@ -418,6 +437,8 @@ func (m *Messenger) processMailserverBatch(batch MailserverBatch) error {
 	ctx, cancel := context.WithTimeout(context.Background(), mailserverRequestTimeout)
 	defer cancel()
 
+  log.Println("SENDING MESSAGE REQUEST FOR TOPICS: ", topicStrings)
+  log.Println("FROM: ", time.Unix(int64(batch.From), 0).Format(time.UnixDate))
 	cursor, storeCursor, err := m.transport.SendMessagesRequestForTopics(ctx, m.mailserver, batch.From, batch.To, nil, nil, batch.Topics, true)
 	if err != nil {
 		return err

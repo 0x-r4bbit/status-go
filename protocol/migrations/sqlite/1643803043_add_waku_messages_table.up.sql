@@ -4,5 +4,5 @@ CREATE TABLE waku_messages (
   topic TEXT NOT NULL,
   payload BLOB NOT NULL,
   padding BLOB NOT NULL,
-  hash BLOB NOT NULL
+  hash TEXT PRIMARY KEY NOT NULL
 );

@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"database/sql"
 	"errors"
-	"log"
 	"fmt"
 
 	"github.com/golang/protobuf/proto"
@@ -350,14 +349,13 @@ func (p *Persistence) SetPrivateKey(id []byte, privKey *ecdsa.PrivateKey) error 
 }
 
 func (p *Persistence) SaveWakuMessage(message *types.Message) error {
-  log.Println("USING TOPIC: ", message.Topic.String())
-  _, err := p.db.Exec(`INSERT INTO waku_messages (sig, timestamp, topic, payload, padding, hash) VALUES (?, ?, ?, ?, ?, ?)`,
+  _, err := p.db.Exec(`INSERT OR REPLACE INTO waku_messages (sig, timestamp, topic, payload, padding, hash) VALUES (?, ?, ?, ?, ?, ?)`,
     message.Sig,
     message.Timestamp,
     message.Topic.String(),
     message.Payload,
     message.Padding,
-    message.Hash,
+    types.Bytes2Hex(message.Hash),
   )
   return err
 }
@@ -402,11 +400,13 @@ func (p *Persistence) GetWakuMessagesByFilterTopic(topics []types.TopicType, fro
   for rows.Next() {
     msg := types.Message{}
     var topicStr string
-    err := rows.Scan(&msg.Sig, &msg.Timestamp, &topicStr, &msg.Payload, &msg.Padding, &msg.Hash)
+    var hashStr string
+    err := rows.Scan(&msg.Sig, &msg.Timestamp, &topicStr, &msg.Payload, &msg.Padding, &hashStr)
     if err != nil {
       return nil, err
     }
     msg.Topic = types.StringToTopic(topicStr)
+    msg.Hash = types.Hex2Bytes(hashStr)
     messages = append(messages, msg)
   }
 
