@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"time"
-	"log"
 
 	"github.com/pborman/uuid"
 	"github.com/pkg/errors"
@@ -296,12 +295,8 @@ func (m *Messenger) syncFiltersFrom(filters []*transport.Filter, lastRequest uin
           return nil, err
         }
       }
-
-      log.Println("FROM: ", time.Unix(int64(from), 0).Format(time.UnixDate))
 			batch = MailserverBatch{From: from, To: to}
-		} else {
-      log.Println("GOT BATCH ALREADY FOR: ", topicData.LastRequest)
-    }
+		}
 
 		batch.ChatIDs = append(batch.ChatIDs, chatID)
 		batch.Topics = append(batch.Topics, filter.Topic)
@@ -342,7 +337,6 @@ func (m *Messenger) syncFiltersFrom(filters []*transport.Filter, lastRequest uin
 	}
 
 
-  log.Println("ADDING SYNCED TOPICS: ", syncedTopics)
 	err = m.mailserversDatabase.AddTopics(syncedTopics)
 	if err != nil {
 		return nil, err
@@ -437,8 +431,6 @@ func (m *Messenger) processMailserverBatch(batch MailserverBatch) error {
 	ctx, cancel := context.WithTimeout(context.Background(), mailserverRequestTimeout)
 	defer cancel()
 
-  log.Println("SENDING MESSAGE REQUEST FOR TOPICS: ", topicStrings)
-  log.Println("FROM: ", time.Unix(int64(batch.From), 0).Format(time.UnixDate))
 	cursor, storeCursor, err := m.transport.SendMessagesRequestForTopics(ctx, m.mailserver, batch.From, batch.To, nil, nil, batch.Topics, true)
 	if err != nil {
 		return err

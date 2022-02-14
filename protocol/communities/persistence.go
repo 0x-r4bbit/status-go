@@ -373,6 +373,18 @@ func (p *Persistence) GetOldestWakuMessageTimestamp(topics []types.TopicType) (u
   return uint64(timestamp.Int64), err
 }
 
+func (p *Persistence) GetLatestWakuMessageTimestamp(topics []types.TopicType) (uint64, error) {
+  var timestamp sql.NullInt64
+  query := "SELECT MAX(timestamp) FROM waku_messages WHERE "
+  for i, topic := range topics {
+    query += `topic = "` + topic.String() + `"`
+    if i < len(topics)-1 {
+      query += " OR "
+    }
+  }
+  err := p.db.QueryRow(query).Scan(&timestamp)
+  return uint64(timestamp.Int64), err
+}
 
 func (p *Persistence) GetWakuMessagesByFilterTopic(topics []types.TopicType, from uint64, to uint64) ([]types.Message, error) {
 
@@ -384,12 +396,8 @@ func (p *Persistence) GetWakuMessagesByFilterTopic(topics []types.TopicType, fro
       query += " OR "
     }
   }
-
   query += ")"
 
-  // rows, err := p.db.Query("SELECT sig, timestamp, topic, payload, padding, hash FROM waku_messages WHERE topic = ? AND timestamp >= ? AND timestamp < ?", topic.String(), from, to)
-
-  // log.Println("USING QUERY: ", query)
   rows, err := p.db.Query(query)
 	if err != nil {
 		return nil, err

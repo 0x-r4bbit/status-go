@@ -150,7 +150,7 @@ type mailserverCycle struct {
 	peers            map[string]peerStatus
 	events           chan *p2p.PeerEvent
 	subscription     event.Subscription
-  availabilitySubscriptions []chan string
+  availabilitySubscriptions map[chan struct{}]chan string
 }
 
 type dbConfig struct {
@@ -412,6 +412,7 @@ func NewMessenger(
 		mailservers:                mailservers,
 		mailserverCycle: mailserverCycle{
 			peers: make(map[string]peerStatus),
+      availabilitySubscriptions: make(map[chan struct{}]chan string),
 		},
 		mailserversDatabase:  c.mailserversDatabase,
 		account:              c.account,
@@ -630,63 +631,12 @@ func (m *Messenger) Start() (*MessengerResponse, error) {
 		if err != nil {
 			return nil, err
 		}
-	}
 
-
-  go func() {
-    mailserverAvailable := m.SubscribeMailserverAvailable()
-
-    select {
-    case <-mailserverAvailable:
-      close(mailserverAvailable)
-      log.Println("NOW AVAILABLE!")
-      // Initialize community message history archive tasks
-      adminCommunities, err := m.communitiesManager.Created()
-      if err != nil {
-        log.Println("ERROR GETTING ADMIN COMMUNITIES")
-      }
-
-      for _, c := range adminCommunities {
-        if c.Joined() {
-          filters, _ := m.communitiesManager.GetCommunityChatsFilters(c.ID())
-          from := time.Now().AddDate(0, 0, -7)
-
-          log.Println("SYNC FILTERS FOR COMMUNITIES")
-          log.Println("FROM: ", from.Format(time.UnixDate))
-          log.Println("FOR: ", len(filters))
-          _, err := m.syncFiltersFrom(filters, uint32(from.Unix()))
-
-          if err != nil {
-            log.Println("FAILED TO SYNC FILTERS: ", err)
-          }
-
-          //m.communitiesManager.StartMessageArchiveCreationInterval(c, 45*time.Second)
-        }
-      }
+    adminCommunities, err := m.communitiesManager.Created()
+    if err == nil && len(adminCommunities) > 0 {
+      go m.initCommunityHistoryArchiveTasks(adminCommunities)
     }
-  }()
-
-  //// Initialize community message history archive tasks
-	//adminCommunities, err := m.communitiesManager.Created()
-	//if err != nil {
-		//return nil, err
-	//}
-
-  //for _, c := range adminCommunities {
-  //  if c.Joined() {
-  //    filters, _ := m.communitiesManager.GetCommunityChatsFilters(c.ID())
-  //    response, err := m.syncFilters(filters)
-
-  //    if err != nil {
-  //      log.Println("FAILED TO SYNC FILTERS: ", err)
-  //    }
-
-  //    log.Println("RESPONSE: ", response)
-
-  //    //m.communitiesManager.StartMessageArchiveCreationInterval(c, 45*time.Second)
-  //  }
-  //}
-
+	}
 	return response, nil
 }
 

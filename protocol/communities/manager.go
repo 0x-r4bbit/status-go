@@ -957,115 +957,222 @@ func (m *Manager) GetCommunityChatsFilters(communityID types.HexBytes) ([]*trans
   return filters, nil
 }
 
+func (m *Manager) GetCommunityChatsTopics(communityID types.HexBytes) ([]types.TopicType, error) {
+  filters, err := m.GetCommunityChatsFilters(communityID)
+  if err != nil {
+    return nil, err
+  }
+
+  topics := []types.TopicType{}
+  for _, filter := range filters {
+    topics = append(topics, filter.Topic)
+  }
+
+  return topics, nil
+}
+
 func (m *Manager) StoreWakuMessage(message *types.Message) error {
   return m.persistence.SaveWakuMessage(message)
 }
 
-func (m *Manager) StartMessageArchiveCreationInterval(community *Community, tick time.Duration) {
+func (m *Manager) GetLatestWakuMessageTimestamp(topics []types.TopicType) (uint64, error) {
+  return m.persistence.GetLatestWakuMessageTimestamp(topics)
+}
+
+func (m *Manager) GetOldestWakuMessageTimestamp(topics []types.TopicType) (uint64, error) {
+  return m.persistence.GetOldestWakuMessageTimestamp(topics)
+}
+
+func (m *Manager) GetLastMessageArchiveEndDate(communityID types.HexBytes) (uint64, error) {
+  return m.persistence.GetLastMessageArchiveEndDate(communityID)
+}
+
+func (m *Manager) GetHistoryArchivePartitionStartTimestamp(communityID types.HexBytes) (uint64, error) {
+  filters, err := m.GetCommunityChatsFilters(communityID)
+  if err != nil {
+    m.logger.Warn("failed to get community chats filters", zap.Error(err))
+    return 0, err
+  }
+
+  if len(filters) == 0 {
+    // If we don't have chat filters, we likely don't have any chats
+    // associated to this community, which means there's nothing more
+    // to do here
+    return 0, nil
+  }
+
+  topics := []types.TopicType{}
+
+  for _, filter := range filters {
+    topics = append(topics, filter.Topic)
+  }
+
+  lastArchiveEndDateTimestamp, err := m.GetLastMessageArchiveEndDate(communityID)
+  if err != nil {
+    m.logger.Debug("failed to get last archive end date", zap.Error(err))
+    return 0, err
+  }
+
+  if lastArchiveEndDateTimestamp == 0 {
+    // If we don't have a tracked last message archive end date, it
+    // means we haven't created an archive before, which means
+    // the next thing to look at is the oldest waku message timestamp for
+    // this community
+    lastArchiveEndDateTimestamp, err = m.GetOldestWakuMessageTimestamp(topics)
+    if err != nil {
+      m.logger.Warn("failed to get oldest waku message timestamp", zap.Error(err))
+      return 0, err
+    }
+    if lastArchiveEndDateTimestamp == 0 {
+      // This means there's no waku message stored for this community so far
+      // (even after requesting possibly missed messages), so no messages exist yet that can be archived
+      return 0, nil
+    }
+  }
+
+  return lastArchiveEndDateTimestamp, nil
+}
+
+
+func (m *Manager) RunHistoryArchiveCreationInterval(community *Community, interval time.Duration) {
 
   _, exists := m.messageArchiveCreationTasks[community.IDString()]
 
-  if !exists {
-    canceler := make(chan struct{})
-    m.messageArchiveCreationTasks[community.IDString()] = canceler
-    go m.runMessageArchiveCreationLoop(community, tick, canceler)
+  if exists {
+    return
   }
-}
 
-func (m *Manager) runMessageArchiveCreationLoop(community *Community, tick time.Duration, cancel <-chan struct{}) {
+  cancel := make(chan struct{})
+  m.messageArchiveCreationTasks[community.IDString()] = cancel
 
-	ticker := time.NewTicker(tick)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-ticker.C:
-      filters, err := m.GetCommunityChatsFilters(community.ID())
-      if err != nil {
-			  m.logger.Warn("failed to get community chats filters", zap.Error(err))
-        continue
-      }
-
-      if len(filters) == 0 {
-        continue
-      }
-
-      // Determine last message archive end date as start date
-      // for next archives, fallback to oldest waku message timestamp
-      // as canonical start date
-      startDate, err := m.persistence.GetLastMessageArchiveEndDate(community.ID())
-      if err != nil {
-			  m.logger.Warn("failed to get last message archive end date", zap.Error(err))
-        continue
-      }
-
-      topics := []types.TopicType{}
-
-      for _, filter := range filters {
-        topics = append(topics, filter.Topic)
-      }
-
-      if startDate == 0 {
-        // If we don't have a tracked last message archive end date, it
-        // means we haven't created an archive before, which means
-        // the next thing to look at is the oldest waku message timestamp for
-        // this community
-        log.Println("NO LAST MESSAGE ARCHIVE END DATE, CREATING ARCHIVE FIRST TIME")
-        startDate, err = m.persistence.GetOldestWakuMessageTimestamp(topics)
+      case <-ticker.C:
+        lastArchiveEndDateTimestamp, err := m.GetHistoryArchivePartitionStartTimestamp(community.ID())
         if err != nil {
-          m.logger.Warn("failed to get oldest waku message timestamp", zap.Error(err))
+          m.logger.Debug("failed to get last archive end date", zap.Error(err))
           continue
         }
-        if startDate == 0 {
-          log.Println("NO MESSAGES TO ARCHIVE")
-          // This means there's no waku message stored for this community so far,
-          // so no messages exist yet that can be archived
+
+        if lastArchiveEndDateTimestamp == 0 {
+          // This means there are no waku messages for this community,
+          // so nothing to do here
           continue
         }
-      }
 
-      to := time.Now()
-      from := time.Unix(int64(startDate), 0)
-      lastTick := to.Add(-tick)
+        topics, err := m.GetCommunityChatsTopics(community.ID())
+        if err != nil {
+          m.logger.Debug("failed to get community chats topics", zap.Error(err))
+          continue
+        }
 
-      log.Println("CREATING ARCHIVE TORRENT FROM: ")
-      if to.Sub(from) <= to.Sub(lastTick) {
-        log.Println("LAST TICK", lastTick.String())
-        from = lastTick
-      } else {
-        log.Println(from.String())
-      }
-
-      log.Println("TO: ")
-      fmt.Println(to.Clock())
-      m.createMessageArchiveTorrent(community.ID(), topics, from, to, time.Second*15)
-    case <-cancel:
-      return
+        to := time.Now()
+        lastArchiveEndDate := time.Unix(int64(lastArchiveEndDateTimestamp), 0)
+        log.Println(">>>>>>>>>>> CREATING ARCHIVE FROM LOOP")
+        log.Println(">>>>>>>>>>> FROM: ", lastArchiveEndDate.String())
+        log.Println(">>>>>>>>>>> TO: ", to.String())
+        m.CreateHistoryArchiveTorrent(community.ID(), topics, lastArchiveEndDate, to, interval)
+      case <-cancel:
+        return
     }
   }
 }
 
-func (m *Manager) createMessageArchiveTorrent(communityID types.HexBytes, topics []types.TopicType, startDate time.Time, endDate time.Time, partition time.Duration) error {
+func (m *Manager) CreateHistoryArchiveTorrent(communityID types.HexBytes, topics []types.TopicType, startDate time.Time, endDate time.Time, partition time.Duration) error {
   from := startDate
   to := from.Add(partition)
+
+  var wakuMessageArchives []*protobuf.WakuMessageArchive
+  var lastMessageArchiveEndDate uint64 = 0
+  topicsAsByteArrays := topicsAsByteArrays(topics)
+
   for {
     if endDate.Sub(from) < partition {
       break
     }
-    wakuMessages, err := m.persistence.GetWakuMessagesByFilterTopic(topics, uint64(from.Unix()), uint64(to.Unix()))
+
+    messages, err := m.persistence.GetWakuMessagesByFilterTopic(topics, uint64(from.Unix()), uint64(to.Unix()))
     if err != nil {
       m.logger.Warn("failed to retreive admin community waku messages", zap.Error(err))
       return err
     }
 
-    if len(wakuMessages) > 0 {
-      log.Println("FETCH MESSAGES FOR PARTIION: ", from.String(), " ", to.String())
-      log.Println("MESSAGES: ", len(wakuMessages))
+    var wakuMessages []*protobuf.WakuMessage
+
+    for _, msg := range messages {
+      topic := topicTypeToByteArray(msg.Topic)
+      lastMessageArchiveEndDate = uint64(msg.Timestamp)
+      wakuMessage := protobuf.WakuMessage{
+        Sig: msg.Sig,
+        Timestamp: lastMessageArchiveEndDate,
+        Topic: topic,
+        Payload: msg.Payload,
+        Padding: msg.Padding,
+        Hash: msg.Hash,
+      }
+      wakuMessages = append(wakuMessages, &wakuMessage)
     }
 
+    metadata := protobuf.WakuMessageArchiveMetadata{
+      From: uint64(from.Unix()),
+      To: uint64(to.Unix()),
+      ContentTopic: topicsAsByteArrays,
+    }
+
+    wakuMessageArchive := &protobuf.WakuMessageArchive{
+      Metadata: &metadata,
+      Messages: wakuMessages,
+    }
+
+    encodedArchive, _ := proto.Marshal(wakuMessageArchive)
+    // pieceLength := 240
+    currentSize := len(encodedArchive)
+    // var leftPadding int
+    var padding uint = 0 // CHANGE THIS TO SOMETHING ELSE
+    log.Println(">>>>>>>>>>> CREATING ARCHIVE OF SIZE (WITHOUT PADDING): ", currentSize)
+
+    wakuMessageArchive.Padding = make([]byte, padding)
+
+    encodedArchive, _ = proto.Marshal(wakuMessageArchive)
+    log.Println(">>>>>>>>>>> WITH PADDING: ", len(encodedArchive))
+
+    wakuMessageArchives = append(wakuMessageArchives, wakuMessageArchive)
     from = to
     to = to.Add(partition)
-
   }
-  return m.persistence.UpdateLastMessageArchiveEndDate(communityID, uint64(from.Unix()))
+
+  if len(wakuMessageArchives) > 0 {
+    log.Println(">>>> ARCHIVES CREATED, UPDATING LAST ARCHIVE END DATE TO: ", from.String())
+    err := m.persistence.UpdateLastMessageArchiveEndDate(communityID, uint64(time.Now().Unix()))
+    if err != nil {
+      m.logger.Warn("failed to update last message archive end date", zap.Error(err))
+      return err
+    }
+  } else {
+    log.Println(">>>> NO ARCHIVES, NOT ENOUGH TIME HAS PASSED")
+    log.Println(">>>> FROM: ", from.String())
+    log.Println(">>>> TO: ", to.String())
+  }
+  return nil
+  // TODO: Create torrent, then seed
+}
+
+func topicsAsByteArrays (topics []types.TopicType) [][]byte {
+  var topicsAsByteArrays [][]byte
+  for _, t := range topics {
+    topic := topicTypeToByteArray(t)
+    topicsAsByteArrays = append(topicsAsByteArrays, topic)
+  }
+  return topicsAsByteArrays
+}
+
+func topicTypeToByteArray (t types.TopicType) []byte {
+  topic := make([]byte, 4)
+  for i, b := range t {
+    topic[i] = b
+  }
+  return topic
 }

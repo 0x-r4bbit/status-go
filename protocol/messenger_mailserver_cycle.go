@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"log"
 
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/multiformats/go-multiaddr"
@@ -648,19 +647,20 @@ func (m *Messenger) checkMailserverConnection() {
 }
 
 func (m *Messenger) EmitMailserverAvailable(peer string) {
-  for _, s := range m.mailserverCycle.availabilitySubscriptions {
+  for cancel, s := range m.mailserverCycle.availabilitySubscriptions {
     select {
     case s <- peer:
-    default:
+    case <- cancel:
+      return
     }
   }
 }
 
-func (m *Messenger) SubscribeMailserverAvailable() chan string {
-  log.Println("SUBSCRIBING")
+func (m *Messenger) SubscribeMailserverAvailable() (chan string, chan struct{}) {
   c := make (chan string)
-  m.mailserverCycle.availabilitySubscriptions = append(m.mailserverCycle.availabilitySubscriptions, c)
-  return c
+  cancel := make(chan struct{})
+  m.mailserverCycle.availabilitySubscriptions[cancel] = c
+  return c, cancel
 }
 
 func parseNodes(enodes []string) []*enode.Node {

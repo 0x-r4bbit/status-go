@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"time"
+	"log"
 
 	"github.com/golang/protobuf/proto"
 	"go.uber.org/zap"
@@ -595,7 +596,7 @@ func (m *Messenger) CreateCommunity(request *requests.CreateCommunity) (*Messeng
 	}
 
   // Schedule message archive creation to started at 7 days from now
-  m.communitiesManager.StartMessageArchiveCreationInterval(community, 15*time.Second)
+  m.communitiesManager.RunHistoryArchiveCreationInterval(community, 15*time.Second)
 
 	return response, nil
 }
@@ -1087,3 +1088,99 @@ func (m *Messenger) handleSyncCommunity(messageState *ReceivedMessageState, sync
 
 	return nil
 }
+
+func (m *Messenger) initCommunityHistoryArchiveTasks(communities []*communities.Community) {
+  mailserverAvailable, unsubscribe  := m.SubscribeMailserverAvailable()
+
+  select {
+  case <-mailserverAvailable:
+    close(unsubscribe)
+
+    for _, c := range communities {
+      if c.Joined() {
+
+        filters, err := m.communitiesManager.GetCommunityChatsFilters(c.ID())
+        if err != nil {
+          m.logger.Debug("failed to get community chats filters", zap.Error(err))
+          continue
+        }
+
+        if len(filters) == 0 {
+          continue
+        }
+
+        topics := []types.TopicType{}
+
+        for _, filter := range filters {
+          topics = append(topics, filter.Topic)
+        }
+
+        // First we need to know the timestamp of the latest waku message
+        // we've received, so we can request messages we've possibly missed
+        // since then
+        latestWakuMessageTimestamp, err := m.communitiesManager.GetLatestWakuMessageTimestamp(topics)
+
+        if latestWakuMessageTimestamp == 0 {
+          // This means we don't have any waku messages for this community
+          // yet, either because no messages were sent in the community so far,
+          // or because messages haven't reached the this node
+          //
+          // In this case we default to requesting messages from the store nodes
+          // for the past 30 days
+          latestWakuMessageTimestamp = uint64(time.Now().AddDate(0, 0, -30).Unix())
+        }
+
+        // Request possibly missed waku messages for community
+        _, err = m.syncFiltersFrom(filters, uint32(latestWakuMessageTimestamp))
+        if err != nil {
+          m.logger.Debug("failed to request missing messages", zap.Error(err))
+          continue
+        }
+
+        // We figure out the end date of the last created archive and schedule
+        // the interval for creating future archives
+        // If the last end date is at least `interval` ago, we create an archive immediately first
+        lastArchiveEndDateTimestamp, err := m.communitiesManager.GetHistoryArchivePartitionStartTimestamp(c.ID())
+        if err != nil {
+          m.logger.Debug("failed to get archive partition start timestamp", zap.Error(err))
+          continue
+        }
+
+        interval := 1*time.Minute
+        to := time.Now()
+        lastArchiveEndDate := time.Unix(int64(lastArchiveEndDateTimestamp), 0)
+        durationSinceLastArchive := to.Sub(lastArchiveEndDate)
+
+        if lastArchiveEndDateTimestamp == 0 {
+          // No prior messages to be archived, so we just kick off the archive creation loop
+          // for future archives
+          log.Println(">>>> STARTING HISTORY ARCHIVE INTERVAL NOW")
+          go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval)
+        } else if durationSinceLastArchive < interval {
+          // Last archive is less than `interval` old, wait until `interval` is complete,
+          // then create archive and kick off archive creation loop for future archives
+          timeToNextInterval := interval - durationSinceLastArchive
+          log.Println(">>>> STARTING HISTORY ARCHIVE INTERVAL IN: ", timeToNextInterval)
+          time.AfterFunc(timeToNextInterval, func() {
+            log.Println(">>>> CREATING ARCHIVE NOW")
+            m.communitiesManager.CreateHistoryArchiveTorrent(c.ID(), topics, lastArchiveEndDate, to, interval)
+            log.Println(">>>> KICKING OFF INTERVAL, SHOULD START IN: ", interval)
+            go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval)
+          })
+        } else {
+          // Looks like the last archive was generated more than `interval`
+          // ago, so lets create a new archive now and then schedule the archive
+          // creation loop
+          log.Println(">>>> CREATE ARCHIVE NOW THEN START INTERVAL")
+          log.Println(">>>> FROM: ", lastArchiveEndDate.String())
+          log.Println(">>>> TO: ", to.String())
+          m.communitiesManager.CreateHistoryArchiveTorrent(c.ID(), topics, lastArchiveEndDate, to, interval)
+          log.Println(">>>> STARTING INTERVAL NOW, SHOULD KICK IN IN: ", interval)
+          go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval)
+        }
+      }
+    }
+  }
+}
+
+
