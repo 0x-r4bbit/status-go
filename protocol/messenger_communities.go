@@ -596,7 +596,7 @@ func (m *Messenger) CreateCommunity(request *requests.CreateCommunity) (*Messeng
 	}
 
   // Schedule message archive creation to started at 7 days from now
-  m.communitiesManager.RunHistoryArchiveCreationInterval(community, 15*time.Second)
+  // m.communitiesManager.RunHistoryArchiveCreationInterval(community, 15*time.Second)
 
 	return response, nil
 }
