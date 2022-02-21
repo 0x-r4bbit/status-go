@@ -1092,6 +1092,11 @@ func (m *Messenger) handleSyncCommunity(messageState *ReceivedMessageState, sync
 func (m *Messenger) initCommunityHistoryArchiveTasks(communities []*communities.Community) {
   mailserverAvailable, unsubscribe  := m.SubscribeMailserverAvailable()
 
+  readyFn := func(communityID types.HexBytes) error {
+    _, err := m.dispatchMagnetlinkMessage(communityID)
+    return err
+  }
+
   select {
   case <-mailserverAvailable:
     close(unsubscribe)
@@ -1146,7 +1151,7 @@ func (m *Messenger) initCommunityHistoryArchiveTasks(communities []*communities.
           continue
         }
 
-        interval := 1*time.Minute
+        interval := 2*time.Minute
         to := time.Now()
         lastArchiveEndDate := time.Unix(int64(lastArchiveEndDateTimestamp), 0)
         durationSinceLastArchive := to.Sub(lastArchiveEndDate)
@@ -1155,17 +1160,21 @@ func (m *Messenger) initCommunityHistoryArchiveTasks(communities []*communities.
           // No prior messages to be archived, so we just kick off the archive creation loop
           // for future archives
           log.Println(">>>> STARTING HISTORY ARCHIVE INTERVAL NOW")
-          go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval)
+          go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval, readyFn)
         } else if durationSinceLastArchive < interval {
           // Last archive is less than `interval` old, wait until `interval` is complete,
           // then create archive and kick off archive creation loop for future archives
+          // Seed current archive in the meantime
+          go m.communitiesManager.SeedHistoryArchiveTorrent(c.ID(), readyFn)
           timeToNextInterval := interval - durationSinceLastArchive
           log.Println(">>>> STARTING HISTORY ARCHIVE INTERVAL IN: ", timeToNextInterval)
           time.AfterFunc(timeToNextInterval, func() {
             log.Println(">>>> CREATING ARCHIVE NOW")
+            m.communitiesManager.UnseedHistoryArchiveTorrent(c.ID())
             m.communitiesManager.CreateHistoryArchiveTorrent(c.ID(), topics, lastArchiveEndDate, to, interval)
+            go m.communitiesManager.SeedHistoryArchiveTorrent(c.ID(), readyFn)
             log.Println(">>>> KICKING OFF INTERVAL, SHOULD START IN: ", interval)
-            go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval)
+            go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval, readyFn)
           })
         } else {
           // Looks like the last archive was generated more than `interval`
@@ -1175,12 +1184,47 @@ func (m *Messenger) initCommunityHistoryArchiveTasks(communities []*communities.
           log.Println(">>>> FROM: ", lastArchiveEndDate.String())
           log.Println(">>>> TO: ", to.String())
           m.communitiesManager.CreateHistoryArchiveTorrent(c.ID(), topics, lastArchiveEndDate, to, interval)
+          go m.communitiesManager.SeedHistoryArchiveTorrent(c.ID(), readyFn)
           log.Println(">>>> STARTING INTERVAL NOW, SHOULD KICK IN IN: ", interval)
-          go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval)
+          go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval, readyFn)
         }
       }
     }
   }
 }
 
+func (m *Messenger) dispatchMagnetlinkMessage(communityID types.HexBytes) ([]byte, error) {
+
+  community, err := m.communitiesManager.GetByIDString(communityID.String())
+  if err != nil {
+    return nil, err
+  }
+
+  magnetlink, err := m.communitiesManager.GetHistoryArchiveMagnetlink(communityID)
+  if err != nil {
+    return nil, err
+  }
+
+  magnetLinkMessage := &protobuf.CommunityMessageArchiveMagnetlink{
+    Clock: m.getTimesource().GetCurrentTime(),
+    MagnetUri: magnetlink,
+  }
+
+  encodedMessage, err := proto.Marshal(magnetLinkMessage)
+  if err != nil {
+    return nil, err
+  }
+
+  chatID := community.MagnetlinkMessageChannelID()
+  rawMessage := common.RawMessage{
+    LocalChatID: chatID,
+    Sender: community.PrivateKey(),
+    Payload: encodedMessage,
+    MessageType: protobuf.ApplicationMetadataMessage_COMMUNITY_ARCHIVE_MAGNETLINK,
+    SkipGroupMessageWrap: true,
+  }
+
+  log.Println("DISPATCHING MAGNET LINK MESSAGE!")
+  return m.sender.SendPublic(context.Background(), chatID, rawMessage)
+}
 

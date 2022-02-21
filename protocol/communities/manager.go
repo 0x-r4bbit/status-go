@@ -6,8 +6,14 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"os"
 	"log"
+	// "path/filepath"
 
+  "github.com/anacrolix/torrent"
+  "github.com/anacrolix/torrent/bencode"
+  "github.com/anacrolix/torrent/metainfo"
+  // "github.com/anacrolix/torrent/storage"
 	"github.com/golang/protobuf/proto"
 
 	"github.com/google/uuid"
@@ -23,6 +29,13 @@ import (
 	"github.com/status-im/status-go/protocol/requests"
 )
 
+var defaultAnnounceList = [][]string{
+    {"http://p4p.arenabg.com:1337/announce"},
+    {"udp://tracker.opentrackr.org:1337/announce"},
+    {"udp://tracker.openbittorrent.com:6969/announce"},
+}
+var pieceLength = 1024
+
 type Manager struct {
 	persistence     *Persistence
 	ensSubscription chan []*ens.VerificationRecord
@@ -32,10 +45,18 @@ type Manager struct {
 	logger          *zap.Logger
   transport       *transport.Transport
 	quit            chan struct{}
+  torrentClient *torrent.Client
   messageArchiveCreationTasks   map[string]chan struct{}
+  torrentTasks map[string]TorrentTask
+  dataDir string
 }
 
-func NewManager(identity *ecdsa.PublicKey, db *sql.DB, logger *zap.Logger, verifier *ens.Verifier, transport *transport.Transport) (*Manager, error) {
+type TorrentTask struct {
+  hash metainfo.Hash
+  cancel chan struct{}
+}
+
+func NewManager(identity *ecdsa.PublicKey, db *sql.DB, logger *zap.Logger, verifier *ens.Verifier, transport *transport.Transport, dataDir string) (*Manager, error) {
 	if identity == nil {
 		return nil, errors.New("empty identity")
 	}
@@ -53,10 +74,12 @@ func NewManager(identity *ecdsa.PublicKey, db *sql.DB, logger *zap.Logger, verif
 		quit:     make(chan struct{}),
     transport: transport,
     messageArchiveCreationTasks: make(map[string]chan struct{}),
+    torrentTasks: make(map[string]TorrentTask),
 		persistence: &Persistence{
 			logger: logger,
 			db:     db,
 		},
+    dataDir: dataDir,
 	}
 
 	if verifier != nil {
@@ -89,7 +112,41 @@ func (m *Manager) Start() error {
 	if m.ensVerifier != nil {
 		m.runENSVerificationLoop()
 	}
+
+  // if torrent support enabled
+  m.StartTorrentClient()
+
 	return nil
+}
+
+func (m *Manager) StartTorrentClient() error {
+  config := torrent.NewDefaultClientConfig()
+  config.Seed = true
+
+  archiveDataDir := m.archiveDataDir()
+  if _, err := os.Stat(archiveDataDir); os.IsNotExist(err) {
+    os.MkdirAll(archiveDataDir, 0700)
+  }
+
+  config.DataDir = archiveDataDir
+
+  client, err := torrent.NewClient(config)
+  if err != nil {
+    return err
+  }
+  m.torrentClient = client
+  return nil
+}
+
+func (m *Manager) StopTorrentClient() []error{
+  if m.TorrentClientStarted() {
+    return m.torrentClient.Close()
+  }
+  return make([]error, 0)
+}
+
+func (m *Manager) TorrentClientStarted() bool {
+  return m.torrentClient != nil
 }
 
 func (m *Manager) runENSVerificationLoop() {
@@ -120,6 +177,7 @@ func (m *Manager) Stop() error {
   for _, t := range m.messageArchiveCreationTasks {
     close(t)
   }
+  m.StopTorrentClient()
 	return nil
 }
 
@@ -712,6 +770,15 @@ func (m *Manager) HandleWrappedCommunityDescriptionMessage(payload []byte) (*Com
 	return m.HandleCommunityDescriptionMessage(signer, description, payload)
 }
 
+func (m *Manager) HandleCommunityMessageArchiveMagnetlink(signer *ecdsa.PublicKey, magnetlink string) error {
+
+	id := crypto.CompressPubkey(signer)
+  m.UnseedHistoryArchiveTorrent(id)
+  m.DownloadHistoryArchiveTorrentByMagnetlink(id, magnetlink)
+
+  return nil
+}
+
 func (m *Manager) JoinCommunity(id types.HexBytes) (*Community, error) {
 	community, err := m.GetByID(id)
 	if err != nil {
@@ -944,6 +1011,29 @@ func (m *Manager) GetAdminCommunitiesChatIDs() (map[string]bool, error) {
   return chatIDs, nil
 }
 
+func (m *Manager) IsAdminCommunity(pubKey *ecdsa.PublicKey) (bool, error) {
+  adminCommunities, err := m.Created()
+  if err != nil {
+    return false, err
+  }
+
+  for _, c := range adminCommunities {
+    if c.PrivateKey().PublicKey.Equal(pubKey) {
+      return true, nil
+    }
+  }
+  return false, nil
+}
+
+func (m *Manager) IsJoinedCommunity(pubKey *ecdsa.PublicKey) (bool, error) {
+  community, err := m.GetByID(crypto.CompressPubkey(pubKey))
+  if err != nil {
+    return false, err
+  }
+
+  return community != nil && community.Joined(), nil
+}
+
 func (m *Manager) GetCommunityChatsFilters(communityID types.HexBytes) ([]*transport.Filter, error) {
   chatIDs, err := m.persistence.GetCommunityChatIDs(communityID)
   if err != nil {
@@ -1034,7 +1124,7 @@ func (m *Manager) GetHistoryArchivePartitionStartTimestamp(communityID types.Hex
 }
 
 
-func (m *Manager) RunHistoryArchiveCreationInterval(community *Community, interval time.Duration) {
+func (m *Manager) RunHistoryArchiveCreationInterval(community *Community, interval time.Duration, ready func(types.HexBytes) error) {
 
   _, exists := m.messageArchiveCreationTasks[community.IDString()]
 
@@ -1071,93 +1161,332 @@ func (m *Manager) RunHistoryArchiveCreationInterval(community *Community, interv
 
         to := time.Now()
         lastArchiveEndDate := time.Unix(int64(lastArchiveEndDateTimestamp), 0)
-        log.Println(">>>>>>>>>>> CREATING ARCHIVE FROM LOOP")
-        log.Println(">>>>>>>>>>> FROM: ", lastArchiveEndDate.String())
-        log.Println(">>>>>>>>>>> TO: ", to.String())
-        m.CreateHistoryArchiveTorrent(community.ID(), topics, lastArchiveEndDate, to, interval)
+
+        m.UnseedHistoryArchiveTorrent(community.ID())
+        err = m.CreateHistoryArchiveTorrent(community.ID(), topics, lastArchiveEndDate, to, interval)
+        if err != nil {
+          m.logger.Debug("failed to create history archive torrent", zap.Error(err))
+          continue
+        }
+        go m.SeedHistoryArchiveTorrent(community.ID(), ready)
       case <-cancel:
+        m.UnseedHistoryArchiveTorrent(community.ID())
+        delete(m.messageArchiveCreationTasks, community.IDString())
         return
     }
   }
 }
 
+type EncodedArchiveData struct {
+  padding int
+  bytes []byte
+}
+
 func (m *Manager) CreateHistoryArchiveTorrent(communityID types.HexBytes, topics []types.TopicType, startDate time.Time, endDate time.Time, partition time.Duration) error {
+
   from := startDate
   to := from.Add(partition)
 
-  var wakuMessageArchives []*protobuf.WakuMessageArchive
-  var lastMessageArchiveEndDate uint64 = 0
+  archiveDir := m.archiveDataDir() + "/" + communityID.String()
+  torrentDir := m.torrentDir()
+  indexPath := archiveDir + "/index"
+  dataPath := archiveDir + "/data"
+
+  wakuMessageArchiveIndexProto := &protobuf.WakuMessageArchiveIndex{}
+  wakuMessageArchiveIndex := make(map[string]*protobuf.WakuMessageArchiveIndexMetadata)
+
+  if _, err := os.Stat(archiveDir); os.IsNotExist(err) {
+    os.MkdirAll(archiveDir, 0700)
+  }
+  if _, err := os.Stat(torrentDir); os.IsNotExist(err) {
+    os.MkdirAll(torrentDir, 0700)
+  }
+
+  _, err := os.Stat(indexPath)
+  if err == nil {
+    indexData, err := os.ReadFile(indexPath)
+    if err != nil {
+      return err
+    }
+
+    err = proto.Unmarshal(indexData, wakuMessageArchiveIndexProto)
+    if err != nil {
+      return err
+    }
+  }
+
+  var offset uint64 = 0
+
+  for hash, metadata := range wakuMessageArchiveIndexProto.Archives {
+    offset = offset + metadata.Size
+    wakuMessageArchiveIndex[hash] = metadata
+    // d, _ := os.ReadFile(dataPath)
+
+    // a := &protobuf.WakuMessageArchive{}
+    // o := metadata.Offset
+    // s := metadata.Size
+    // p := metadata.Padding
+    // log.Println("OFFSET: ", o)
+    // log.Println("SIZE: ", s)
+    // log.Println("PADDING: ", p)
+    // f := d[o:o+s-p]
+    // err := proto.Unmarshal(f, a)
+    // if err != nil {
+    //   log.Println("ERROR: ", err)
+    //   return err
+    // }
+    // log.Println("YAY ARCHIVE RECOVERED: ", a)
+  }
+
+  var encodedArchives []*EncodedArchiveData
   topicsAsByteArrays := topicsAsByteArrays(topics)
 
   for {
     if endDate.Sub(from) < partition {
       break
     }
-
     messages, err := m.persistence.GetWakuMessagesByFilterTopic(topics, uint64(from.Unix()), uint64(to.Unix()))
     if err != nil {
-      m.logger.Warn("failed to retreive admin community waku messages", zap.Error(err))
       return err
     }
 
-    var wakuMessages []*protobuf.WakuMessage
-
-    for _, msg := range messages {
-      topic := topicTypeToByteArray(msg.Topic)
-      lastMessageArchiveEndDate = uint64(msg.Timestamp)
-      wakuMessage := protobuf.WakuMessage{
-        Sig: msg.Sig,
-        Timestamp: lastMessageArchiveEndDate,
-        Topic: topic,
-        Payload: msg.Payload,
-        Padding: msg.Padding,
-        Hash: msg.Hash,
-      }
-      wakuMessages = append(wakuMessages, &wakuMessage)
+    wakuMessageArchive := m.createWakuMessageArchive(from, to, messages, topicsAsByteArrays)
+    encodedArchive, err := proto.Marshal(wakuMessageArchive)
+    if err != nil {
+      return err
     }
 
-    metadata := protobuf.WakuMessageArchiveMetadata{
-      From: uint64(from.Unix()),
-      To: uint64(to.Unix()),
-      ContentTopic: topicsAsByteArrays,
+    rawSize := len(encodedArchive)
+    padding := 0
+    size := 0
+
+    if rawSize > pieceLength {
+      size = rawSize + pieceLength - (rawSize % pieceLength)
+      padding = size - rawSize
+    } else {
+      padding = pieceLength - rawSize
+      size = rawSize + padding
     }
 
-    wakuMessageArchive := &protobuf.WakuMessageArchive{
-      Metadata: &metadata,
-      Messages: wakuMessages,
+    wakuMessageArchiveIndexMetadata := &protobuf.WakuMessageArchiveIndexMetadata{
+      Metadata: wakuMessageArchive.Metadata,
+      Offset: uint64(offset),
+      Size: uint64(size),
+      Padding: uint64(padding),
     }
 
-    encodedArchive, _ := proto.Marshal(wakuMessageArchive)
-    // pieceLength := 240
-    currentSize := len(encodedArchive)
-    // var leftPadding int
-    var padding uint = 0 // CHANGE THIS TO SOMETHING ELSE
-    log.Println(">>>>>>>>>>> CREATING ARCHIVE OF SIZE (WITHOUT PADDING): ", currentSize)
+    wakuMessageArchiveIndexMetadataBytes, err := proto.Marshal(wakuMessageArchiveIndexMetadata)
+    if err != nil {
+      return err
+    }
 
-    wakuMessageArchive.Padding = make([]byte, padding)
-
-    encodedArchive, _ = proto.Marshal(wakuMessageArchive)
-    log.Println(">>>>>>>>>>> WITH PADDING: ", len(encodedArchive))
-
-    wakuMessageArchives = append(wakuMessageArchives, wakuMessageArchive)
+    wakuMessageArchiveIndex[crypto.Keccak256Hash(wakuMessageArchiveIndexMetadataBytes).String()] = wakuMessageArchiveIndexMetadata
+    encodedArchives = append(encodedArchives, &EncodedArchiveData{ bytes: encodedArchive, padding: padding })
     from = to
     to = to.Add(partition)
+    offset = uint64(offset) + uint64(rawSize) + uint64(padding)
   }
 
-  if len(wakuMessageArchives) > 0 {
-    log.Println(">>>> ARCHIVES CREATED, UPDATING LAST ARCHIVE END DATE TO: ", from.String())
-    err := m.persistence.UpdateLastMessageArchiveEndDate(communityID, uint64(time.Now().Unix()))
+  if len(encodedArchives) > 0 {
+
+    dataBytes := make([]byte, 0)
+    if _, err := os.Stat(dataPath); err == nil {
+      dataBytes, err = os.ReadFile(dataPath)
+      if err != nil {
+        return err
+      }
+    }
+
+    for _, encodedArchiveData := range encodedArchives {
+      dataBytes = append(dataBytes, encodedArchiveData.bytes...)
+      dataBytes = append(dataBytes, make([]byte, encodedArchiveData.padding)...)
+    }
+
+    wakuMessageArchiveIndexProto.Archives = wakuMessageArchiveIndex
+    indexBytes, err := proto.Marshal(wakuMessageArchiveIndexProto)
     if err != nil {
-      m.logger.Warn("failed to update last message archive end date", zap.Error(err))
       return err
     }
-  } else {
-    log.Println(">>>> NO ARCHIVES, NOT ENOUGH TIME HAS PASSED")
-    log.Println(">>>> FROM: ", from.String())
-    log.Println(">>>> TO: ", to.String())
+
+    err = os.WriteFile(indexPath, indexBytes, 0644)
+    if err != nil {
+      return err
+    }
+
+    err = os.WriteFile(dataPath, dataBytes, 0644)
+    if err != nil {
+      return err
+    }
+
+    metaInfo := metainfo.MetaInfo{
+      AnnounceList: defaultAnnounceList,
+    }
+    metaInfo.SetDefaults()
+    metaInfo.CreatedBy = common.PubkeyToHex(m.identity)
+
+    info := metainfo.Info{
+      PieceLength: int64(pieceLength),
+    }
+
+    err = info.BuildFromFilePath(archiveDir)
+    if err != nil {
+      return err
+    }
+
+    metaInfo.InfoBytes, err = bencode.Marshal(info)
+    if err != nil {
+      return err
+    }
+
+    metaInfoBytes, err := bencode.Marshal(metaInfo)
+    if err != nil {
+      return err
+    }
+
+    err = os.WriteFile(m.torrentFile(communityID.String()), metaInfoBytes, 0644)
+    if err != nil {
+      return err
+    }
+
+    err = m.persistence.UpdateLastMessageArchiveEndDate(communityID, uint64(from.Unix()))
+    if err != nil {
+      return err
+    }
   }
   return nil
-  // TODO: Create torrent, then seed
+}
+
+func (m *Manager) SeedHistoryArchiveTorrent(communityID types.HexBytes, ready func (types.HexBytes) error) error {
+  m.UnseedHistoryArchiveTorrent(communityID)
+
+  id := communityID.String()
+  torrentFile := m.torrentFile(id)
+
+  metaInfo, err := metainfo.LoadFromFile(torrentFile)
+  if err != nil {
+    return err
+  }
+
+  info, err := metaInfo.UnmarshalInfo()
+  if err != nil {
+    return err
+  }
+
+  hash := metaInfo.HashInfoBytes()
+  cancel := make(chan struct{})
+
+  m.torrentTasks[id] = TorrentTask{
+    hash: hash,
+    cancel: cancel,
+  }
+
+  if err != nil {
+    return err
+  }
+
+  torrent, err := m.torrentClient.AddTorrent(metaInfo)
+  if err != nil {
+    return err
+  }
+  defer torrent.Drop()
+  torrent.DownloadAll()
+
+  log.Println("SEEDING: ", metaInfo.Magnet(nil, &info).String())
+  err = ready(communityID)
+  if err != nil {
+    return err
+  }
+
+  for {
+    select {
+      case <- cancel:
+        log.Println("DROPPING PREVIOUS TORRENT")
+        torrent.Drop()
+        delete(m.torrentTasks, id)
+        return nil
+    }
+  }
+}
+
+func (m *Manager) UnseedHistoryArchiveTorrent(communityID types.HexBytes) {
+  id := communityID.String()
+  task, exists := m.torrentTasks[id]
+
+  if exists {
+    close(task.cancel)
+  }
+}
+
+func (m *Manager) DownloadHistoryArchiveTorrentByMagnetlink(communityID types.HexBytes, magnetlink string) error {
+
+  torrent, err := m.torrentClient.AddMagnet(magnetlink)
+  if err != nil {
+    return err
+  }
+
+  files := torrent.Files()
+  log.Println("TORRENT HAS FILE: ", files[0].Path(), files[0].DisplayPath())
+  log.Println("TORRENT HAS FILE: ", files[1].Path(), files[1].DisplayPath())
+
+  return nil
+}
+
+func (m *Manager) GetHistoryArchiveMagnetlink(communityID types.HexBytes) (string, error) {
+  id := communityID.String()
+  torrentFile := m.torrentFile(id)
+
+  metaInfo, err := metainfo.LoadFromFile(torrentFile)
+  if err != nil {
+    return "", err
+  }
+
+  info, err := metaInfo.UnmarshalInfo()
+  if err != nil {
+    return "", err
+  }
+
+  return metaInfo.Magnet(nil, &info).String(), nil
+}
+
+func (m *Manager) createWakuMessageArchive(from time.Time, to time.Time, messages []types.Message, topics [][]byte) *protobuf.WakuMessageArchive {
+  var wakuMessages []*protobuf.WakuMessage
+
+  for _, msg := range messages {
+    topic := topicTypeToByteArray(msg.Topic)
+    wakuMessage := &protobuf.WakuMessage{
+      Sig: msg.Sig,
+      Timestamp: uint64(msg.Timestamp),
+      Topic: topic,
+      Payload: msg.Payload,
+      Padding: msg.Padding,
+      Hash: msg.Hash,
+    }
+    wakuMessages = append(wakuMessages, wakuMessage)
+  }
+
+  metadata := protobuf.WakuMessageArchiveMetadata{
+    From: uint64(from.Unix()),
+    To: uint64(to.Unix()),
+    ContentTopic: topics,
+  }
+
+  wakuMessageArchive := &protobuf.WakuMessageArchive{
+    Metadata: &metadata,
+    Messages: wakuMessages,
+  }
+  return wakuMessageArchive
+}
+
+func (m *Manager) archiveDataDir() string {
+  return m.dataDir + "/archivedata"
+}
+
+func (m *Manager) torrentDir() string {
+  return m.dataDir + "/torrents"
+}
+
+func (m *Manager) torrentFile(communityID string) string {
+  return m.torrentDir() + "/" + communityID + ".torrent"
 }
 
 func topicsAsByteArrays (topics []types.TopicType) [][]byte {
@@ -1176,3 +1505,4 @@ func topicTypeToByteArray (t types.TopicType) []byte {
   }
   return topic
 }
+

@@ -72,6 +72,7 @@ func (s *MessengerCommunitiesSuite) TearDownTest() {
 func (s *MessengerCommunitiesSuite) newMessengerWithOptions(shh types.Waku, privateKey *ecdsa.PrivateKey, options []Option) *Messenger {
 	m, err := NewMessenger(
 		"Test",
+    "testpath",
 		privateKey,
 		&testNode{shh: shh},
 		uuid.New().String(),

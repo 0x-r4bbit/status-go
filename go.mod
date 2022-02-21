@@ -11,6 +11,7 @@ replace github.com/docker/docker => github.com/docker/engine v1.4.2-0.2019071716
 replace github.com/nfnt/resize => github.com/status-im/resize v0.0.0-20201215164250-7c6d9f0d3088
 
 require (
+	github.com/anacrolix/torrent v1.40.1
 	github.com/beevik/ntp v0.2.0
 	github.com/cenkalti/backoff/v3 v3.2.2
 	github.com/davecgh/go-spew v1.1.1
@@ -69,7 +70,6 @@ require (
 	golang.org/x/crypto v0.0.0-20211202192323-5770296d904e
 	golang.org/x/image v0.0.0-20210220032944-ac19c3e999fb
 	golang.org/x/tools v0.1.2 // indirect
-	google.golang.org/protobuf v1.27.1
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
 	gopkg.in/go-playground/validator.v9 v9.31.0
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0

@@ -46,6 +46,8 @@ type config struct {
 
 	featureFlags common.FeatureFlags
 
+  dataDir string
+
 	// A path to a database or a database instance is required.
 	// The database instance has a higher priority.
 	dbConfig            dbConfig

@@ -213,6 +213,7 @@ func main() {
 
 		messenger, err := protocol.NewMessenger(
 			config.Name,
+      config.DataDir,
 			identity,
 			gethbridge.NewNodeBridge(backend.StatusNode().GethNode(), backend.StatusNode().WakuService(), backend.StatusNode().WakuV2Service()),
 			installationID.String(),

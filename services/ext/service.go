@@ -144,6 +144,7 @@ func (s *Service) InitProtocol(nodeName string, identity *ecdsa.PrivateKey, db *
 
 	messenger, err := protocol.NewMessenger(
 		nodeName,
+    dataDir,
 		identity,
 		s.n,
 		s.config.ShhextConfig.InstallationID,
