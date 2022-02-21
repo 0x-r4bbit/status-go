@@ -105,5 +105,16 @@ message WakuMessageArchive {
   uint32 version = 1;
   WakuMessageArchiveMetadata metadata = 2;
   repeated WakuMessage messages = 3;
-  bytes padding = 4;
+}
+
+message WakuMessageArchiveIndexMetadata {
+  uint32 version = 1;
+  WakuMessageArchiveMetadata metadata = 2;
+  uint64 offset = 3;
+  uint64 size = 4;
+  uint64 padding = 5;
+}
+
+message WakuMessageArchiveIndex {
+  map<string, WakuMessageArchiveIndexMetadata> archives = 1;
 }
