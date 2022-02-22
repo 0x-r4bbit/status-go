@@ -636,6 +636,7 @@ func (m *Messenger) Start() (*MessengerResponse, error) {
 
     adminCommunities, err := m.communitiesManager.Created()
     if err == nil && len(adminCommunities) > 0 {
+      log.Println("INIT COMMUNITY TASKS!")
       go m.initCommunityHistoryArchiveTasks(adminCommunities)
     }
 	}

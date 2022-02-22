@@ -1092,7 +1092,7 @@ func (m *Messenger) handleSyncCommunity(messageState *ReceivedMessageState, sync
 func (m *Messenger) initCommunityHistoryArchiveTasks(communities []*communities.Community) {
   mailserverAvailable, unsubscribe  := m.SubscribeMailserverAvailable()
 
-  readyFn := func(communityID types.HexBytes) error {
+  dispatchMagnetlink := func(communityID types.HexBytes) error {
     _, err := m.dispatchMagnetlinkMessage(communityID)
     return err
   }
@@ -1160,33 +1160,36 @@ func (m *Messenger) initCommunityHistoryArchiveTasks(communities []*communities.
           // No prior messages to be archived, so we just kick off the archive creation loop
           // for future archives
           log.Println(">>>> STARTING HISTORY ARCHIVE INTERVAL NOW")
-          go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval, readyFn)
+          go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval, dispatchMagnetlink)
         } else if durationSinceLastArchive < interval {
           // Last archive is less than `interval` old, wait until `interval` is complete,
           // then create archive and kick off archive creation loop for future archives
           // Seed current archive in the meantime
-          go m.communitiesManager.SeedHistoryArchiveTorrent(c.ID(), readyFn)
+          m.communitiesManager.SeedHistoryArchiveTorrent(c.ID())
+
           timeToNextInterval := interval - durationSinceLastArchive
           log.Println(">>>> STARTING HISTORY ARCHIVE INTERVAL IN: ", timeToNextInterval)
           time.AfterFunc(timeToNextInterval, func() {
             log.Println(">>>> CREATING ARCHIVE NOW")
             m.communitiesManager.UnseedHistoryArchiveTorrent(c.ID())
             m.communitiesManager.CreateHistoryArchiveTorrent(c.ID(), topics, lastArchiveEndDate, to, interval)
-            go m.communitiesManager.SeedHistoryArchiveTorrent(c.ID(), readyFn)
+            m.communitiesManager.SeedHistoryArchiveTorrent(c.ID())
+            m.dispatchMagnetlinkMessage(c.ID())
+
             log.Println(">>>> KICKING OFF INTERVAL, SHOULD START IN: ", interval)
-            go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval, readyFn)
+            go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval, dispatchMagnetlink)
           })
         } else {
           // Looks like the last archive was generated more than `interval`
           // ago, so lets create a new archive now and then schedule the archive
           // creation loop
           log.Println(">>>> CREATE ARCHIVE NOW THEN START INTERVAL")
-          log.Println(">>>> FROM: ", lastArchiveEndDate.String())
-          log.Println(">>>> TO: ", to.String())
           m.communitiesManager.CreateHistoryArchiveTorrent(c.ID(), topics, lastArchiveEndDate, to, interval)
-          go m.communitiesManager.SeedHistoryArchiveTorrent(c.ID(), readyFn)
+          m.communitiesManager.SeedHistoryArchiveTorrent(c.ID())
+          m.dispatchMagnetlinkMessage(c.ID())
+
           log.Println(">>>> STARTING INTERVAL NOW, SHOULD KICK IN IN: ", interval)
-          go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval, readyFn)
+          go m.communitiesManager.RunHistoryArchiveCreationInterval(c, interval, dispatchMagnetlink)
         }
       }
     }

@@ -47,7 +47,7 @@ type Manager struct {
 	quit            chan struct{}
   torrentClient *torrent.Client
   messageArchiveCreationTasks   map[string]chan struct{}
-  torrentTasks map[string]TorrentTask
+  torrentTasks map[string]metainfo.Hash
   dataDir string
 }
 
@@ -74,7 +74,7 @@ func NewManager(identity *ecdsa.PublicKey, db *sql.DB, logger *zap.Logger, verif
 		quit:     make(chan struct{}),
     transport: transport,
     messageArchiveCreationTasks: make(map[string]chan struct{}),
-    torrentTasks: make(map[string]TorrentTask),
+    torrentTasks: make(map[string]metainfo.Hash),
 		persistence: &Persistence{
 			logger: logger,
 			db:     db,
@@ -113,7 +113,7 @@ func (m *Manager) Start() error {
 		m.runENSVerificationLoop()
 	}
 
-  // if torrent support enabled
+  //if torrent support enabled
   m.StartTorrentClient()
 
 	return nil
@@ -772,9 +772,13 @@ func (m *Manager) HandleWrappedCommunityDescriptionMessage(payload []byte) (*Com
 
 func (m *Manager) HandleCommunityMessageArchiveMagnetlink(signer *ecdsa.PublicKey, magnetlink string) error {
 
-	id := crypto.CompressPubkey(signer)
+	id := types.HexBytes(crypto.CompressPubkey(signer))
+  log.Println("HANDING MAGNET LINK FOR: ", id.String())
   m.UnseedHistoryArchiveTorrent(id)
-  m.DownloadHistoryArchiveTorrentByMagnetlink(id, magnetlink)
+  go m.DownloadHistoryArchiveTorrentByMagnetlink(id, magnetlink)
+  // if err != nil {
+  //   return err
+  // }
 
   return nil
 }
@@ -1124,7 +1128,7 @@ func (m *Manager) GetHistoryArchivePartitionStartTimestamp(communityID types.Hex
 }
 
 
-func (m *Manager) RunHistoryArchiveCreationInterval(community *Community, interval time.Duration, ready func(types.HexBytes) error) {
+func (m *Manager) RunHistoryArchiveCreationInterval(community *Community, interval time.Duration, dispatchMagnetlink func(types.HexBytes) error) {
 
   _, exists := m.messageArchiveCreationTasks[community.IDString()]
 
@@ -1168,7 +1172,8 @@ func (m *Manager) RunHistoryArchiveCreationInterval(community *Community, interv
           m.logger.Debug("failed to create history archive torrent", zap.Error(err))
           continue
         }
-        go m.SeedHistoryArchiveTorrent(community.ID(), ready)
+        m.SeedHistoryArchiveTorrent(community.ID())
+        dispatchMagnetlink(community.ID())
       case <-cancel:
         m.UnseedHistoryArchiveTorrent(community.ID())
         delete(m.messageArchiveCreationTasks, community.IDString())
@@ -1356,7 +1361,7 @@ func (m *Manager) CreateHistoryArchiveTorrent(communityID types.HexBytes, topics
   return nil
 }
 
-func (m *Manager) SeedHistoryArchiveTorrent(communityID types.HexBytes, ready func (types.HexBytes) error) error {
+func (m *Manager) SeedHistoryArchiveTorrent(communityID types.HexBytes) error {
   m.UnseedHistoryArchiveTorrent(communityID)
 
   id := communityID.String()
@@ -1373,12 +1378,7 @@ func (m *Manager) SeedHistoryArchiveTorrent(communityID types.HexBytes, ready fu
   }
 
   hash := metaInfo.HashInfoBytes()
-  cancel := make(chan struct{})
-
-  m.torrentTasks[id] = TorrentTask{
-    hash: hash,
-    cancel: cancel,
-  }
+  m.torrentTasks[id] = hash
 
   if err != nil {
     return err
@@ -1388,47 +1388,40 @@ func (m *Manager) SeedHistoryArchiveTorrent(communityID types.HexBytes, ready fu
   if err != nil {
     return err
   }
-  defer torrent.Drop()
   torrent.DownloadAll()
 
   log.Println("SEEDING: ", metaInfo.Magnet(nil, &info).String())
-  err = ready(communityID)
-  if err != nil {
-    return err
-  }
-
-  for {
-    select {
-      case <- cancel:
-        log.Println("DROPPING PREVIOUS TORRENT")
-        torrent.Drop()
-        delete(m.torrentTasks, id)
-        return nil
-    }
-  }
+  return nil
 }
 
 func (m *Manager) UnseedHistoryArchiveTorrent(communityID types.HexBytes) {
   id := communityID.String()
-  task, exists := m.torrentTasks[id]
+  hash, exists := m.torrentTasks[id]
 
   if exists {
-    close(task.cancel)
+    torrent, ok := m.torrentClient.Torrent(hash)
+    if ok {
+      torrent.Drop()
+      delete(m.torrentTasks, id)
+    }
   }
 }
 
 func (m *Manager) DownloadHistoryArchiveTorrentByMagnetlink(communityID types.HexBytes, magnetlink string) error {
 
-  torrent, err := m.torrentClient.AddMagnet(magnetlink)
-  if err != nil {
-    return err
+  id := communityID.String()
+  ml, _ := metainfo.ParseMagnetUri(magnetlink)
+
+  torrent, _ := m.torrentClient.AddMagnet(magnetlink)
+  m.torrentTasks[id] = ml.InfoHash
+
+  select {
+    case <-torrent.GotInfo():
+      files := torrent.Files()
+      log.Println("TORRENT HAS FILE: ", files[0].Path(), files[0].DisplayPath())
+      log.Println("TORRENT HAS FILE: ", files[1].Path(), files[1].DisplayPath())
+      return nil
   }
-
-  files := torrent.Files()
-  log.Println("TORRENT HAS FILE: ", files[0].Path(), files[0].DisplayPath())
-  log.Println("TORRENT HAS FILE: ", files[1].Path(), files[1].DisplayPath())
-
-  return nil
 }
 
 func (m *Manager) GetHistoryArchiveMagnetlink(communityID types.HexBytes) (string, error) {
