@@ -129,6 +129,7 @@ func (m *Manager) StartTorrentClient() error {
   }
 
   config.DataDir = archiveDataDir
+  config.SetListenAddr(":9023")
 
   client, err := torrent.NewClient(config)
   if err != nil {
