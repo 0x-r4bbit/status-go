@@ -19,6 +19,7 @@ import (
 	"github.com/status-im/status-go/eth-node/types"
 	"github.com/status-im/status-go/mailserver"
 	"github.com/status-im/status-go/multiaccounts/accounts"
+	"github.com/status-im/status-go/params"
 	"github.com/status-im/status-go/protocol"
 	"github.com/status-im/status-go/protocol/common"
 	"github.com/status-im/status-go/protocol/communities"
@@ -933,6 +934,18 @@ func (api *PublicAPI) StartDiscV5() error {
 
 func (api *PublicAPI) StopDiscV5() error {
 	return api.service.messenger.StopDiscV5()
+}
+
+func (api *PublicAPI) GetCommunitiesSettings() ([]params.CommunitySettings, error) {
+	return api.service.messenger.GetCommunitiesSettings()
+}
+
+func (api *PublicAPI) EnableCommunityHistoryArchiveProtocol() error {
+	return api.service.messenger.EnableCommunityHistoryArchiveProtocol()
+}
+
+func (api *PublicAPI) DisableCommunityHistoryArchiveProtocol() error {
+	return api.service.messenger.DisableCommunityHistoryArchiveProtocol()
 }
 
 func (api *PublicAPI) AddStorePeer(address string) (string, error) {

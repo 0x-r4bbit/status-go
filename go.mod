@@ -13,6 +13,7 @@ replace github.com/nfnt/resize => github.com/status-im/resize v0.0.0-20201215164
 replace github.com/forPelevin/gomoji => github.com/status-im/gomoji v1.1.3-0.20220213022530-e5ac4a8732d4
 
 require (
+	github.com/anacrolix/torrent v1.40.1
 	github.com/beevik/ntp v0.2.0
 	github.com/cenkalti/backoff/v3 v3.2.2
 	github.com/davecgh/go-spew v1.1.1

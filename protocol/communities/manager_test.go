@@ -31,7 +31,7 @@ func (s *ManagerSuite) SetupTest() {
 	key, err := crypto.GenerateKey()
 	s.Require().NoError(err)
 	s.Require().NoError(err)
-	m, err := NewManager(&key.PublicKey, db, nil, nil)
+	m, err := NewManager(&key.PublicKey, db, nil, nil, nil, nil)
 	s.Require().NoError(err)
 	s.Require().NoError(m.Start())
 	s.manager = m

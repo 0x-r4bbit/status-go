@@ -626,6 +626,41 @@ func (m *Messenger) HandleCommunityInvitation(state *ReceivedMessageState, signe
 	return nil
 }
 
+func (m *Messenger) HandleHistoryArchiveMagnetlinkMessage(state *ReceivedMessageState, communityPubKey *ecdsa.PublicKey, magnetlink string, clock uint64) error {
+
+	id := types.HexBytes(crypto.CompressPubkey(communityPubKey))
+	settings, err := m.communitiesManager.GetCommunitySettingsByID(id)
+	if err != nil {
+		m.logger.Debug("Couldn't get community settings for community with id: ", zap.Any("id", id))
+		return err
+	}
+
+	if m.config.torrentConfig.Enabled && settings.HistoryArchiveSupportEnabled {
+		signedByOwnedCommunity, err := m.communitiesManager.IsAdminCommunity(communityPubKey)
+		if err != nil {
+			return err
+		}
+		joinedCommunity, err := m.communitiesManager.IsJoinedCommunity(communityPubKey)
+		if err != nil {
+			return err
+		}
+    lastClock, err := m.communitiesManager.GetMagnetlinkMessageClock(id)
+    if err != nil {
+      return err
+    }
+		// We are only interested in a community archive magnet link
+		// if it originates from a community that the current account is
+		// part of and doesn't own the private key at the same time
+		if !signedByOwnedCommunity && joinedCommunity && clock > lastClock {
+      err := m.communitiesManager.HandleHistoryArchiveMagnetlinkMessage(communityPubKey, magnetlink, clock)
+      if err != nil {
+        return err
+      }
+		}
+	}
+	return nil
+}
+
 // HandleCommunityRequestToJoin handles an community request to join
 func (m *Messenger) HandleCommunityRequestToJoin(state *ReceivedMessageState, signer *ecdsa.PublicKey, requestToJoinProto protobuf.CommunityRequestToJoin) error {
 	if requestToJoinProto.CommunityId == nil {

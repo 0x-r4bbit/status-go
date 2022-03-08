@@ -6,6 +6,7 @@ import (
 	"github.com/status-im/status-go/services/browsers"
 
 	"github.com/status-im/status-go/appmetrics"
+	"github.com/status-im/status-go/params"
 	"github.com/status-im/status-go/protocol/common"
 	"github.com/status-im/status-go/protocol/communities"
 	"github.com/status-im/status-go/protocol/encryption/multidevice"
@@ -41,6 +42,7 @@ type MessengerResponse struct {
 	removedChats                map[string]bool
 	removedMessages             map[string]*RemovedMessage
 	communities                 map[string]*communities.Community
+	communitiesSettings         map[string]*params.CommunitySettings
 	activityCenterNotifications map[string]*ActivityCenterNotification
 	messages                    map[string]*common.Message
 	pinMessages                 map[string]*common.PinMessage
@@ -69,6 +71,7 @@ func (r *MessengerResponse) MarshalJSON() ([]byte, error) {
 		// that are useful to notify the user about
 		Notifications               []*localnotifications.Notification `json:"notifications"`
 		Communities                 []*communities.Community           `json:"communities,omitempty"`
+		CommunitiesSettings         []*params.CommunitySettings        `json:"communitiesSettings,omitempty"`
 		ActivityCenterNotifications []*ActivityCenterNotification      `json:"activityCenterNotifications,omitempty"`
 		CurrentStatus               *UserStatus                        `json:"currentStatus,omitempty"`
 		StatusUpdates               []UserStatus                       `json:"statusUpdates,omitempty"`
@@ -88,6 +91,7 @@ func (r *MessengerResponse) MarshalJSON() ([]byte, error) {
 	responseItem.Notifications = r.Notifications()
 	responseItem.Chats = r.Chats()
 	responseItem.Communities = r.Communities()
+	responseItem.CommunitiesSettings = r.CommunitiesSettings()
 	responseItem.RemovedChats = r.RemovedChats()
 	responseItem.RemovedMessages = r.RemovedMessages()
 	responseItem.ClearedHistories = r.ClearedHistories()
@@ -136,6 +140,14 @@ func (r *MessengerResponse) Communities() []*communities.Community {
 		communities = append(communities, c)
 	}
 	return communities
+}
+
+func (r *MessengerResponse) CommunitiesSettings() []*params.CommunitySettings {
+	var settings []*params.CommunitySettings
+	for _, s := range r.communitiesSettings {
+		settings = append(settings, s)
+	}
+	return settings
 }
 
 func (r *MessengerResponse) Notifications() []*localnotifications.Notification {
@@ -225,6 +237,14 @@ func (r *MessengerResponse) AddCommunity(c *communities.Community) {
 	}
 
 	r.communities[c.IDString()] = c
+}
+
+func (r *MessengerResponse) AddCommunitySettings(c *params.CommunitySettings) {
+	if r.communitiesSettings == nil {
+		r.communitiesSettings = make(map[string]*params.CommunitySettings)
+	}
+
+	r.communitiesSettings[c.CommunityID] = c
 }
 
 func (r *MessengerResponse) AddBookmark(bookmark *browsers.Bookmark) {

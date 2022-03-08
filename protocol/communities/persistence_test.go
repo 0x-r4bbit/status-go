@@ -11,6 +11,7 @@ import (
 
 	"github.com/status-im/status-go/eth-node/crypto"
 	"github.com/status-im/status-go/eth-node/types"
+	"github.com/status-im/status-go/params"
 	"github.com/status-im/status-go/protocol/common"
 	"github.com/status-im/status-go/protocol/protobuf"
 	"github.com/status-im/status-go/protocol/sqlite"
@@ -254,4 +255,57 @@ func (s *PersistenceSuite) TestGetSyncedRawCommunity() {
 	s.NoError(err)
 	s.NotNil(src)
 	s.Equal(clock, src.SyncedAt)
+}
+
+func (s *PersistenceSuite) TestGetCommunitiesSettings() {
+	settings := []params.CommunitySettings{
+		{CommunityID: "0x01", HistoryArchiveSupportEnabled: false},
+		{CommunityID: "0x02", HistoryArchiveSupportEnabled: true},
+		{CommunityID: "0x03", HistoryArchiveSupportEnabled: false},
+	}
+
+	for i := range settings {
+		stg := settings[i]
+		err := s.db.SaveCommunitySettings(stg)
+		s.NoError(err)
+	}
+
+	rst, err := s.db.GetCommunitiesSettings()
+	s.NoError(err)
+	s.Equal(settings, rst)
+}
+
+func (s *PersistenceSuite) TestDeleteCommunitySettings() {
+	settings := params.CommunitySettings{CommunityID: "0x01", HistoryArchiveSupportEnabled: false}
+
+	err := s.db.SaveCommunitySettings(settings)
+	s.NoError(err)
+
+	rst, err := s.db.GetCommunitiesSettings()
+	s.NoError(err)
+	s.Equal(1, len(rst))
+	s.NoError(s.db.DeleteCommunitySettings(types.HexBytes{0x01}))
+	rst2, err := s.db.GetCommunitiesSettings()
+	s.NoError(err)
+	s.Equal(0, len(rst2))
+}
+
+func (s *PersistenceSuite) TestUpdateCommunitySettings() {
+	settings := []params.CommunitySettings{
+		{CommunityID: "0x01", HistoryArchiveSupportEnabled: true},
+		{CommunityID: "0x02", HistoryArchiveSupportEnabled: false},
+	}
+
+	s.NoError(s.db.SaveCommunitySettings(settings[0]))
+	s.NoError(s.db.SaveCommunitySettings(settings[1]))
+
+	settings[0].HistoryArchiveSupportEnabled = true
+	settings[1].HistoryArchiveSupportEnabled = false
+
+	s.NoError(s.db.UpdateCommunitySettings(settings[0]))
+	s.NoError(s.db.UpdateCommunitySettings(settings[1]))
+
+	rst, err := s.db.GetCommunitiesSettings()
+	s.NoError(err)
+	s.Equal(settings, rst)
 }

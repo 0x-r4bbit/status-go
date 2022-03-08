@@ -218,6 +218,8 @@ func main() {
 			protocol.WithDatabase(db),
 		}
 
+    stdlog.Println("TORRENT ENABLED: ", config.TorrentConfig.Enabled)
+
 		messenger, err := protocol.NewMessenger(
 			config.Name,
 			&config.TorrentConfig,

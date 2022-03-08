@@ -5,6 +5,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/log"
 	userimages "github.com/status-im/status-go/images"
+	"github.com/status-im/status-go/params"
 	"github.com/status-im/status-go/protocol/images"
 	"github.com/status-im/status-go/protocol/protobuf"
 )
@@ -17,17 +18,18 @@ var (
 )
 
 type CreateCommunity struct {
-	Name        string                               `json:"name"`
-	Description string                               `json:"description"`
-	Color       string                               `json:"color"`
-	Emoji       string                               `json:"emoji"`
-	Membership  protobuf.CommunityPermissions_Access `json:"membership"`
-	EnsOnly     bool                                 `json:"ensOnly"`
-	Image       string                               `json:"image"`
-	ImageAx     int                                  `json:"imageAx"`
-	ImageAy     int                                  `json:"imageAy"`
-	ImageBx     int                                  `json:"imageBx"`
-	ImageBy     int                                  `json:"imageBy"`
+	Name                         string                               `json:"name"`
+	Description                  string                               `json:"description"`
+	Color                        string                               `json:"color"`
+	Emoji                        string                               `json:"emoji"`
+	Membership                   protobuf.CommunityPermissions_Access `json:"membership"`
+	EnsOnly                      bool                                 `json:"ensOnly"`
+	Image                        string                               `json:"image"`
+	ImageAx                      int                                  `json:"imageAx"`
+	ImageAy                      int                                  `json:"imageAy"`
+	ImageBx                      int                                  `json:"imageBx"`
+	ImageBy                      int                                  `json:"imageBy"`
+	HistoryArchiveSupportEnabled bool                                 `json:"historyArchiveSupportEnabled,omitempty"`
 }
 
 func adaptIdentityImageToProtobuf(img *userimages.IdentityImage) *protobuf.IdentityImage {
@@ -88,4 +90,14 @@ func (c *CreateCommunity) ToCommunityDescription() (*protobuf.CommunityDescripti
 		},
 	}
 	return description, nil
+}
+
+func (c *CreateCommunity) ToCommunitySettings(publicKey string) params.CommunitySettings {
+
+	settings := params.CommunitySettings{
+		CommunityID:                  publicKey,
+		HistoryArchiveSupportEnabled: c.HistoryArchiveSupportEnabled,
+	}
+
+	return settings
 }

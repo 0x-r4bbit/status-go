@@ -503,6 +503,12 @@ type Network struct {
 	Enabled                bool   `json:"enabled"`
 }
 
+type CommunitySettings struct {
+	CommunityID                  string `json:"communityId"`
+	HistoryArchiveSupportEnabled bool   `json:"historyArchiveSupportEnabled"`
+	LastMessageArchiveEndDate    int    `json:"lastMessageArchiveEndDate"`
+}
+
 // WalletConfig extra configuration for wallet.Service.
 type WalletConfig struct {
 	Enabled       bool
@@ -947,6 +953,17 @@ func (c *NodeConfig) Validate() error {
 			return fmt.Errorf("WakuConfig.DataDir must start with DataDir fragment")
 		}
 	}
+
+	// Message archive data and torrent directory must be relative to the main data directory
+	// if message archive support is enabled.
+	// if c.TorrentConfig.Enabled {
+	// 	if !strings.HasPrefix(c.TorrentConfig.DataDir, c.DataDir) {
+	// 		return fmt.Errorf("TorrentConfig.DataDir must start with DataDir fragment")
+	// 	}
+	// 	if !strings.HasPrefix(c.TorrentConfig.TorrentDir, c.DataDir) {
+	// 		return fmt.Errorf("TorrentConfig.TorrentDir must start with DataDir fragment")
+	// 	}
+	// }
 
 	if !c.NoDiscovery && len(c.ClusterConfig.BootNodes) == 0 {
 		// No point in running discovery if we don't have bootnodes.
