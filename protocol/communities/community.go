@@ -947,9 +947,14 @@ func (o *Community) StatusUpdatesChannelID() string {
 	return o.IDString() + "-ping"
 }
 
+func (o *Community) MagnetlinkMessageChannelID() string {
+	return o.IDString() + "-magnetlinks"
+}
+
 func (o *Community) DefaultFilters() []string {
 	cID := o.IDString()
-	return []string{cID, cID + "-ping"}
+	mlChannelID := o.MagnetlinkMessageChannelID()
+	return []string{cID, cID + "-ping", mlChannelID}
 }
 
 func (o *Community) PrivateKey() *ecdsa.PrivateKey {
