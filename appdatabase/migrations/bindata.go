@@ -2,6 +2,7 @@
 // sources:
 // 1640111208_dummy.up.sql (258B)
 // 1642666031_add_removed_clock_to_bookmarks.up.sql (117B)
+// 1642771235_add_communities_settings.up.sql (205B)
 // 1643644541_gif_api_key_setting.up.sql (108B)
 // 1644188994_recent_stickers.up.sql (79B)
 // 1645784744_add_torrent_config.up.sql (211B)
@@ -111,6 +112,26 @@ func _1642666031_add_removed_clock_to_bookmarksUpSql() (*asset, error) {
 
 	info := bindataFileInfo{name: "1642666031_add_removed_clock_to_bookmarks.up.sql", size: 117, mode: os.FileMode(0664), modTime: time.Unix(1646322504, 0)}
 	a := &asset{bytes: bytes, info: info, digest: [32]uint8{0x84, 0x4e, 0x38, 0x99, 0x7a, 0xc, 0x90, 0x13, 0xec, 0xfe, 0x2f, 0x55, 0xff, 0xb7, 0xb6, 0xaa, 0x96, 0xc6, 0x92, 0x79, 0xcc, 0xee, 0x4e, 0x99, 0x53, 0xfe, 0x1c, 0xbb, 0x32, 0x2, 0xa4, 0x27}}
+	return a, nil
+}
+
+var __1642771235_add_communities_settingsUpSql = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x84\xcb\xb1\xaa\xc2\x30\x14\x06\xe0\x3d\x4f\xf1\x8f\xf7\x82\x2f\x71\x1a\x4f\xa1\x18\x9b\x12\x23\xd8\x29\xd4\xf6\xd8\x06\x6c\x04\x13\x05\xdf\xde\xcd\x49\x70\xfe\xf8\xb4\x63\xf2\x0c\x4f\x95\x61\x8c\xb7\x75\x7d\xa4\x58\xa2\xe4\x90\xa5\x94\x98\xe6\x8c\x3f\x85\x0f\xbc\x42\x9c\xe0\xf9\xe4\xd1\xb9\x66\x4f\xae\xc7\x8e\x7b\xd8\x16\xda\xb6\xb5\x69\xb4\x87\xe3\xce\x90\xe6\x8d\x02\x56\xc9\x79\x98\x25\x0c\xf7\x71\x89\x4f\x09\x59\x64\x8a\x69\x0e\x92\x86\xf3\x55\x26\x54\xd6\x1a\xa6\x16\x5b\xae\xe9\x68\x3c\x6a\x32\x87\xaf\xf1\x22\x65\x5c\x7e\x4e\xf5\xaf\xde\x01\x00\x00\xff\xff\xba\x00\x37\x99\xcd\x00\x00\x00")
+
+func _1642771235_add_communities_settingsUpSqlBytes() ([]byte, error) {
+	return bindataRead(
+		__1642771235_add_communities_settingsUpSql,
+		"1642771235_add_communities_settings.up.sql",
+	)
+}
+
+func _1642771235_add_communities_settingsUpSql() (*asset, error) {
+	bytes, err := _1642771235_add_communities_settingsUpSqlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "1642771235_add_communities_settings.up.sql", size: 205, mode: os.FileMode(0664), modTime: time.Unix(1646752272, 0)}
+	a := &asset{bytes: bytes, info: info, digest: [32]uint8{0x6e, 0xc, 0xc, 0x79, 0x1d, 0xbe, 0x3, 0xa8, 0x2a, 0xd0, 0xbd, 0x29, 0x32, 0xea, 0x9a, 0x7e, 0x33, 0x7f, 0xf7, 0x45, 0x86, 0xf8, 0x9a, 0xeb, 0xca, 0xf8, 0xc8, 0xa9, 0xf9, 0x84, 0x0, 0x4d}}
 	return a, nil
 }
 
@@ -289,6 +310,8 @@ var _bindata = map[string]func() (*asset, error){
 
 	"1642666031_add_removed_clock_to_bookmarks.up.sql": _1642666031_add_removed_clock_to_bookmarksUpSql,
 
+	"1642771235_add_communities_settings.up.sql": _1642771235_add_communities_settingsUpSql,
+
 	"1643644541_gif_api_key_setting.up.sql": _1643644541_gif_api_key_settingUpSql,
 
 	"1644188994_recent_stickers.up.sql": _1644188994_recent_stickersUpSql,
@@ -341,6 +364,7 @@ type bintree struct {
 var _bintree = &bintree{nil, map[string]*bintree{
 	"1640111208_dummy.up.sql":                          &bintree{_1640111208_dummyUpSql, map[string]*bintree{}},
 	"1642666031_add_removed_clock_to_bookmarks.up.sql": &bintree{_1642666031_add_removed_clock_to_bookmarksUpSql, map[string]*bintree{}},
+	"1642771235_add_communities_settings.up.sql":       &bintree{_1642771235_add_communities_settingsUpSql, map[string]*bintree{}},
 	"1643644541_gif_api_key_setting.up.sql":            &bintree{_1643644541_gif_api_key_settingUpSql, map[string]*bintree{}},
 	"1644188994_recent_stickers.up.sql":                &bintree{_1644188994_recent_stickersUpSql, map[string]*bintree{}},
 	"1645784744_add_torrent_config.up.sql":             &bintree{_1645784744_add_torrent_configUpSql, map[string]*bintree{}},
