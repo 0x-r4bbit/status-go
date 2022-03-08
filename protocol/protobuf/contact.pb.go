@@ -79,9 +79,7 @@ func init() {
 	proto.RegisterType((*ContactUpdate)(nil), "protobuf.ContactUpdate")
 }
 
-func init() {
-	proto.RegisterFile("contact.proto", fileDescriptor_a5036fff2565fb15)
-}
+func init() { proto.RegisterFile("contact.proto", fileDescriptor_a5036fff2565fb15) }
 
 var fileDescriptor_a5036fff2565fb15 = []byte{
 	// 144 bytes of a gzipped FileDescriptorProto

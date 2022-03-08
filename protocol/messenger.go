@@ -38,6 +38,7 @@ import (
 	userimage "github.com/status-im/status-go/images"
 	"github.com/status-im/status-go/multiaccounts"
 	"github.com/status-im/status-go/multiaccounts/accounts"
+	"github.com/status-im/status-go/params"
 	"github.com/status-im/status-go/protocol/anonmetrics"
 	"github.com/status-im/status-go/protocol/audio"
 	"github.com/status-im/status-go/protocol/common"
@@ -210,6 +211,7 @@ func (interceptor EnvelopeEventsInterceptor) MailServerRequestExpired(hash types
 
 func NewMessenger(
 	nodeName string,
+	torrentConfig *params.TorrentConfig,
 	identity *ecdsa.PrivateKey,
 	node types.Node,
 	installationID string,
@@ -219,6 +221,7 @@ func NewMessenger(
 	var messenger *Messenger
 
 	c := config{}
+	c.torrentConfig = torrentConfig
 
 	for _, opt := range opts {
 		if err := opt(&c); err != nil {
