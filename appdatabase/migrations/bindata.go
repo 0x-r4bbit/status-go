@@ -9,6 +9,7 @@
 // 1647278782_display_name.up.sql (110B)
 // 1647860168_add_torrent_config.up.sql (211B)
 // 1647862837_add_communities_settings_table.up.sql (206B)
+// 1647956635_add_waku_messages_table.up.sql (266B)
 // doc.go (74B)
 
 package migrations
@@ -233,7 +234,7 @@ func _1647860168_add_torrent_configUpSql() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "1647860168_add_torrent_config.up.sql", size: 211, mode: os.FileMode(0664), modTime: time.Unix(1647862710, 0)}
+	info := bindataFileInfo{name: "1647860168_add_torrent_config.up.sql", size: 211, mode: os.FileMode(0664), modTime: time.Unix(1647866655, 0)}
 	a := &asset{bytes: bytes, info: info, digest: [32]uint8{0x1, 0x92, 0x22, 0x37, 0x96, 0xf3, 0xb5, 0x5b, 0x27, 0xd0, 0x7d, 0x43, 0x5, 0x4e, 0x9d, 0xe2, 0x49, 0xbe, 0x86, 0x31, 0xa1, 0x89, 0xff, 0xd6, 0x51, 0xe0, 0x9c, 0xb, 0xda, 0xfc, 0xf2, 0x93}}
 	return a, nil
 }
@@ -253,8 +254,28 @@ func _1647862837_add_communities_settings_tableUpSql() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "1647862837_add_communities_settings_table.up.sql", size: 206, mode: os.FileMode(0664), modTime: time.Unix(1647862858, 0)}
+	info := bindataFileInfo{name: "1647862837_add_communities_settings_table.up.sql", size: 206, mode: os.FileMode(0664), modTime: time.Unix(1647956038, 0)}
 	a := &asset{bytes: bytes, info: info, digest: [32]uint8{0xbd, 0x87, 0x78, 0x99, 0xd9, 0x5d, 0xbd, 0xf7, 0x57, 0x9c, 0xca, 0x97, 0xbd, 0xb3, 0xe9, 0xb5, 0x89, 0x31, 0x3f, 0xf6, 0x5c, 0x13, 0xb, 0xc3, 0x54, 0x93, 0x18, 0x40, 0x7, 0x82, 0xfe, 0x7e}}
+	return a, nil
+}
+
+var __1647956635_add_waku_messages_tableUpSql = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x6c\xcf\xc1\xca\x82\x50\x10\x05\xe0\xfd\x3c\xc5\x59\xfe\x82\x6f\xe0\x4a\xff\x66\x21\xdd\xae\x21\x37\xd0\x95\x0c\x29\x7a\x29\xf3\xc2\x18\xd1\xdb\xb7\x30\x04\xab\xed\xcc\xe1\xcc\x37\xff\x25\xa7\x8e\xe1\xd2\xcc\x30\x1e\x72\xb9\x37\x63\xa7\x2a\x7d\xa7\xf8\x23\x40\x7d\x8f\xcc\x14\x19\x6c\xe1\x60\x4f\xc6\xc4\x04\xcc\x7e\xec\x74\x96\x31\x20\xb7\x6e\xbb\x99\x82\x3f\xc3\x71\xb5\x1d\x07\x79\x5e\x27\x69\xbf\x9b\x82\xb4\xad\xbf\xfd\x38\x31\x88\x0e\x4b\xcf\xb1\xcc\x0f\x69\x59\x63\xcf\xf5\x9a\xa0\x28\x21\x7a\xcb\x73\xbb\xe3\x6a\x2b\x6f\x56\x60\xb3\x80\x0a\xfb\xf9\xda\x9a\x88\x17\x73\x94\xd0\x2b\x00\x00\xff\xff\xde\xa7\x3f\x4b\x0a\x01\x00\x00")
+
+func _1647956635_add_waku_messages_tableUpSqlBytes() ([]byte, error) {
+	return bindataRead(
+		__1647956635_add_waku_messages_tableUpSql,
+		"1647956635_add_waku_messages_table.up.sql",
+	)
+}
+
+func _1647956635_add_waku_messages_tableUpSql() (*asset, error) {
+	bytes, err := _1647956635_add_waku_messages_tableUpSqlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "1647956635_add_waku_messages_table.up.sql", size: 266, mode: os.FileMode(0664), modTime: time.Unix(1647957517, 0)}
+	a := &asset{bytes: bytes, info: info, digest: [32]uint8{0xd1, 0xe, 0xe1, 0xdc, 0xda, 0x2e, 0x89, 0x8d, 0xdc, 0x2a, 0x1c, 0x13, 0xa1, 0xfc, 0xfe, 0xf, 0xb2, 0xb9, 0x85, 0xc8, 0x45, 0xd6, 0xd1, 0x7, 0x5c, 0xa3, 0x8, 0x47, 0x44, 0x6d, 0x96, 0xe0}}
 	return a, nil
 }
 
@@ -387,6 +408,8 @@ var _bindata = map[string]func() (*asset, error){
 
 	"1647862837_add_communities_settings_table.up.sql": _1647862837_add_communities_settings_tableUpSql,
 
+	"1647956635_add_waku_messages_table.up.sql": _1647956635_add_waku_messages_tableUpSql,
+
 	"doc.go": docGo,
 }
 
@@ -440,6 +463,7 @@ var _bintree = &bintree{nil, map[string]*bintree{
 	"1647278782_display_name.up.sql":                    &bintree{_1647278782_display_nameUpSql, map[string]*bintree{}},
 	"1647860168_add_torrent_config.up.sql":              &bintree{_1647860168_add_torrent_configUpSql, map[string]*bintree{}},
 	"1647862837_add_communities_settings_table.up.sql":  &bintree{_1647862837_add_communities_settings_tableUpSql, map[string]*bintree{}},
+	"1647956635_add_waku_messages_table.up.sql":         &bintree{_1647956635_add_waku_messages_tableUpSql, map[string]*bintree{}},
 	"doc.go": &bintree{docGo, map[string]*bintree{}},
 }}
 
