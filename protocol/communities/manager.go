@@ -7,6 +7,9 @@ import (
 	"strings"
 	"time"
 
+	_ "github.com/anacrolix/torrent"
+	_ "github.com/anacrolix/torrent/bencode"
+	_ "github.com/anacrolix/torrent/metainfo"
 	"github.com/golang/protobuf/proto"
 
 	"github.com/google/uuid"
