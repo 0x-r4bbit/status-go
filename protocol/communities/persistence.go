@@ -423,6 +423,15 @@ func (p *Persistence) GetWakuMessagesByFilterTopic(topics []types.TopicType, fro
 	return messages, nil
 }
 
+func (p *Persistence) GetMagnetlinkMessageClock(communityID types.HexBytes) (uint64, error) {
+	var magnetlinkClock uint64
+	err := p.db.QueryRow(`SELECT magnetlink_clock FROM communities_archive_info WHERE community_id = ?`, communityID.String()).Scan(&magnetlinkClock)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return magnetlinkClock, err
+}
+
 func (p *Persistence) UpdateMagnetlinkMessageClock(communityID types.HexBytes, clock uint64) error {
 	_, err := p.db.Exec(`UPDATE communities_archive_info SET
     magnetlink_clock = ?
@@ -458,6 +467,22 @@ func (p *Persistence) GetLastMessageArchiveEndDate(communityID types.HexBytes) (
 		return 0, err
 	}
 	return lastMessageArchiveEndDate, nil
+}
+
+func (p *Persistence) HasMessageArchiveID(communityID types.HexBytes, hash string) (exists bool, err error) {
+	err = p.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM community_message_archive_hashes WHERE community_id = ? AND hash = ?)`,
+		communityID.String(),
+		hash,
+	).Scan(&exists)
+	return exists, err
+}
+
+func (p *Persistence) SaveMessageArchiveID(communityID types.HexBytes, hash string) error {
+	_, err := p.db.Exec(`INSERT INTO community_message_archive_hashes (community_id, hash) VALUES (?, ?)`,
+		communityID.String(),
+		hash,
+	)
+	return err
 }
 
 func (p *Persistence) GetCommunitiesSettings() ([]CommunitySettings, error) {
