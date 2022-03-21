@@ -977,3 +977,7 @@ func (db *Database) GifFavorites() (favorites json.RawMessage, err error) {
 	}
 	return favorites, nil
 }
+
+func (db *Database) GetNodeConfig() (*params.NodeConfig, error) {
+	return nodecfg.GetNodeConfig(db.db)
+}

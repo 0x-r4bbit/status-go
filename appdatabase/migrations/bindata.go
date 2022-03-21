@@ -10,6 +10,7 @@
 // 1647860168_add_torrent_config.up.sql (211B)
 // 1647862837_add_communities_settings_table.up.sql (206B)
 // 1647956635_add_waku_messages_table.up.sql (266B)
+// 1647957715_add_community_archives_info_table.up.sql (194B)
 // doc.go (74B)
 
 package migrations
@@ -279,6 +280,26 @@ func _1647956635_add_waku_messages_tableUpSql() (*asset, error) {
 	return a, nil
 }
 
+var __1647957715_add_community_archives_info_tableUpSql = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x74\x8d\xc1\x6a\xc4\x20\x18\x06\xef\x3e\xc5\x77\x6c\xa1\x87\xbe\x82\xb5\x7f\x20\xd4\x9a\x20\x7f\xa0\x39\x89\x18\x9b\x4a\xa2\x81\xea\x2e\xec\xdb\x2f\x7b\xc9\x6d\xcf\x33\xc3\x28\x4b\x92\x09\x2c\x3f\x34\x21\x1c\x39\x5f\x4a\x6a\x29\x56\xe7\xff\xc3\x5f\xba\x46\x97\xca\xef\x81\x17\x81\x13\xde\x5c\x5a\xc0\xf4\xc3\x18\x6d\xff\x2d\xed\x8c\x2f\x9a\x31\x18\xa8\xc1\x74\xba\x57\x0c\x4b\xa3\x96\x8a\xde\x04\x90\xfd\x5a\x62\xdb\x53\xd9\x5c\xd8\x8f\xb0\xa1\x37\x0c\x33\x30\xcc\xa4\x35\x3e\xa9\x93\x93\x66\xbc\x3f\xd4\xdd\xd7\xe6\x72\xac\xd5\xaf\xf1\xbc\xc7\xb2\xb8\xc5\xb7\xf8\xa4\x13\xaf\x42\xdc\x03\x00\x00\xff\xff\x2d\x4e\x11\xe6\xc2\x00\x00\x00")
+
+func _1647957715_add_community_archives_info_tableUpSqlBytes() ([]byte, error) {
+	return bindataRead(
+		__1647957715_add_community_archives_info_tableUpSql,
+		"1647957715_add_community_archives_info_table.up.sql",
+	)
+}
+
+func _1647957715_add_community_archives_info_tableUpSql() (*asset, error) {
+	bytes, err := _1647957715_add_community_archives_info_tableUpSqlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "1647957715_add_community_archives_info_table.up.sql", size: 194, mode: os.FileMode(0664), modTime: time.Unix(1647957746, 0)}
+	a := &asset{bytes: bytes, info: info, digest: [32]uint8{0x8a, 0xe9, 0xa9, 0x6c, 0xf2, 0xb5, 0xfe, 0x39, 0x66, 0x16, 0x44, 0xd6, 0x41, 0x60, 0x2d, 0x1a, 0x4, 0x3d, 0xf3, 0x3e, 0xb3, 0x14, 0xd0, 0xe5, 0x31, 0xc6, 0x99, 0x48, 0xf5, 0xc4, 0x76, 0xa}}
+	return a, nil
+}
+
 var _docGo = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x2c\xc9\xb1\x0d\xc4\x20\x0c\x05\xd0\x9e\x29\xfe\x02\xd8\xfd\x6d\xe3\x4b\xac\x2f\x44\x82\x09\x78\x7f\xa5\x49\xfd\xa6\x1d\xdd\xe8\xd8\xcf\x55\x8a\x2a\xe3\x47\x1f\xbe\x2c\x1d\x8c\xfa\x6f\xe3\xb4\x34\xd4\xd9\x89\xbb\x71\x59\xb6\x18\x1b\x35\x20\xa2\x9f\x0a\x03\xa2\xe5\x0d\x00\x00\xff\xff\x60\xcd\x06\xbe\x4a\x00\x00\x00")
 
 func docGoBytes() ([]byte, error) {
@@ -410,6 +431,8 @@ var _bindata = map[string]func() (*asset, error){
 
 	"1647956635_add_waku_messages_table.up.sql": _1647956635_add_waku_messages_tableUpSql,
 
+	"1647957715_add_community_archives_info_table.up.sql": _1647957715_add_community_archives_info_tableUpSql,
+
 	"doc.go": docGo,
 }
 
@@ -454,16 +477,17 @@ type bintree struct {
 }
 
 var _bintree = &bintree{nil, map[string]*bintree{
-	"1640111208_dummy.up.sql":                           &bintree{_1640111208_dummyUpSql, map[string]*bintree{}},
-	"1642666031_add_removed_clock_to_bookmarks.up.sql":  &bintree{_1642666031_add_removed_clock_to_bookmarksUpSql, map[string]*bintree{}},
-	"1643644541_gif_api_key_setting.up.sql":             &bintree{_1643644541_gif_api_key_settingUpSql, map[string]*bintree{}},
-	"1644188994_recent_stickers.up.sql":                 &bintree{_1644188994_recent_stickersUpSql, map[string]*bintree{}},
-	"1646659233_add_address_to_dapp_permisssion.up.sql": &bintree{_1646659233_add_address_to_dapp_permisssionUpSql, map[string]*bintree{}},
-	"1646841105_add_emoji_account.up.sql":               &bintree{_1646841105_add_emoji_accountUpSql, map[string]*bintree{}},
-	"1647278782_display_name.up.sql":                    &bintree{_1647278782_display_nameUpSql, map[string]*bintree{}},
-	"1647860168_add_torrent_config.up.sql":              &bintree{_1647860168_add_torrent_configUpSql, map[string]*bintree{}},
-	"1647862837_add_communities_settings_table.up.sql":  &bintree{_1647862837_add_communities_settings_tableUpSql, map[string]*bintree{}},
-	"1647956635_add_waku_messages_table.up.sql":         &bintree{_1647956635_add_waku_messages_tableUpSql, map[string]*bintree{}},
+	"1640111208_dummy.up.sql":                             &bintree{_1640111208_dummyUpSql, map[string]*bintree{}},
+	"1642666031_add_removed_clock_to_bookmarks.up.sql":    &bintree{_1642666031_add_removed_clock_to_bookmarksUpSql, map[string]*bintree{}},
+	"1643644541_gif_api_key_setting.up.sql":               &bintree{_1643644541_gif_api_key_settingUpSql, map[string]*bintree{}},
+	"1644188994_recent_stickers.up.sql":                   &bintree{_1644188994_recent_stickersUpSql, map[string]*bintree{}},
+	"1646659233_add_address_to_dapp_permisssion.up.sql":   &bintree{_1646659233_add_address_to_dapp_permisssionUpSql, map[string]*bintree{}},
+	"1646841105_add_emoji_account.up.sql":                 &bintree{_1646841105_add_emoji_accountUpSql, map[string]*bintree{}},
+	"1647278782_display_name.up.sql":                      &bintree{_1647278782_display_nameUpSql, map[string]*bintree{}},
+	"1647860168_add_torrent_config.up.sql":                &bintree{_1647860168_add_torrent_configUpSql, map[string]*bintree{}},
+	"1647862837_add_communities_settings_table.up.sql":    &bintree{_1647862837_add_communities_settings_tableUpSql, map[string]*bintree{}},
+	"1647956635_add_waku_messages_table.up.sql":           &bintree{_1647956635_add_waku_messages_tableUpSql, map[string]*bintree{}},
+	"1647957715_add_community_archives_info_table.up.sql": &bintree{_1647957715_add_community_archives_info_tableUpSql, map[string]*bintree{}},
 	"doc.go": &bintree{docGo, map[string]*bintree{}},
 }}
 
