@@ -43,6 +43,7 @@ message CommunityDescription {
   map<string,CommunityChat> chats = 6;
   repeated string ban_list = 7;
   map<string,CommunityCategory> categories = 8;
+  uint64 magnetlink_clock = 9;
 }
 
 message CommunityChat {

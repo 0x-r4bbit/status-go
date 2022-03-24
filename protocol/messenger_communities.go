@@ -20,7 +20,8 @@ import (
 )
 
 // 7 days interval
-var messageArchiveInterval = 7 * 24 * time.Hour
+// var messageArchiveInterval = 7 * 24 * time.Hour
+var messageArchiveInterval = 5 * time.Minute
 
 func (m *Messenger) publishOrg(org *communities.Community) error {
 	m.logger.Debug("publishing org", zap.String("org-id", org.IDString()), zap.Any("org", org))
@@ -1327,8 +1328,11 @@ func (m *Messenger) dispatchMagnetlinkMessage(communityID string) error {
 		return err
 	}
 
-	err = m.communitiesManager.UpdateMagnetlinkMessageClock(community.ID(), magnetLinkMessage.Clock)
-	return err
+  err = m.communitiesManager.UpdateCommunityDescriptionMagnetlinkMessageClock(community.ID(), magnetLinkMessage.Clock)
+  if err != nil {
+    return err
+  }
+	return m.communitiesManager.UpdateMagnetlinkMessageClock(community.ID(), magnetLinkMessage.Clock)
 }
 
 func (m *Messenger) EnableCommunityHistoryArchiveProtocol() error {

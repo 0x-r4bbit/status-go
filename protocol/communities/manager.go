@@ -633,6 +633,19 @@ func (m *Manager) HandleCommunityDescriptionMessage(signer *ecdsa.PublicKey, des
 		return nil, err
 	}
 
+  magnetlinkClock, err := m.persistence.GetMagnetlinkMessageClock(community.ID())
+  if err != nil {
+    return nil, err
+  }
+
+  cdMagnetlinkClock := community.config.CommunityDescription.MagnetlinkClock
+  if (cdMagnetlinkClock > magnetlinkClock) {
+    err = m.persistence.UpdateMagnetlinkMessageClock(community.ID(), cdMagnetlinkClock)
+    if err != nil {
+      return nil, err
+    }
+  }
+
 	pkString := common.PubkeyToHex(m.identity)
 
 	// If the community require membership, we set whether we should leave/join the community after a state change
@@ -807,6 +820,15 @@ func (m *Manager) JoinCommunity(id types.HexBytes) (*Community, error) {
 
 func (m *Manager) GetMagnetlinkMessageClock(communityID types.HexBytes) (uint64, error) {
 	return m.persistence.GetMagnetlinkMessageClock(communityID)
+}
+
+func (m *Manager) UpdateCommunityDescriptionMagnetlinkMessageClock(communityID types.HexBytes, clock uint64) error {
+	community, err := m.GetByIDString(communityID.String())
+  if err != nil {
+    return err
+  }
+  community.config.CommunityDescription.MagnetlinkClock = clock
+  return m.persistence.SaveCommunity(community)
 }
 
 func (m *Manager) UpdateMagnetlinkMessageClock(communityID types.HexBytes, clock uint64) error {
