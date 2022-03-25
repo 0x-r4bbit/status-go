@@ -423,6 +423,11 @@ func (p *Persistence) GetWakuMessagesByFilterTopic(topics []types.TopicType, fro
 	return messages, nil
 }
 
+func (p *Persistence) HasCommunityArchiveInfo(communityID types.HexBytes) (exists bool, err error) {
+	err = p.db.QueryRow(`SELECT count(1) FROM communities_archive_info WHERE community_id = ?`, communityID.String()).Scan(&exists)
+	return exists, err
+}
+
 func (p *Persistence) GetMagnetlinkMessageClock(communityID types.HexBytes) (uint64, error) {
 	var magnetlinkClock uint64
 	err := p.db.QueryRow(`SELECT magnetlink_clock FROM communities_archive_info WHERE community_id = ?`, communityID.String()).Scan(&magnetlinkClock)
@@ -430,6 +435,14 @@ func (p *Persistence) GetMagnetlinkMessageClock(communityID types.HexBytes) (uin
 		return 0, nil
 	}
 	return magnetlinkClock, err
+}
+
+func (p *Persistence) SaveCommunityArchiveInfo(communityID types.HexBytes, clock uint64, lastArchiveEndDate uint64) error {
+	_, err := p.db.Exec(`INSERT INTO communities_archive_info (magnetlink_clock, last_message_archive_end_date, community_id) VALUES (?, ?, ?)`,
+		clock,
+    lastArchiveEndDate,
+		communityID.String())
+	return err
 }
 
 func (p *Persistence) UpdateMagnetlinkMessageClock(communityID types.HexBytes, clock uint64) error {

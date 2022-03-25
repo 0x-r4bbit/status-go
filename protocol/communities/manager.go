@@ -633,16 +633,27 @@ func (m *Manager) HandleCommunityDescriptionMessage(signer *ecdsa.PublicKey, des
 		return nil, err
 	}
 
-  magnetlinkClock, err := m.persistence.GetMagnetlinkMessageClock(community.ID())
+  hasCommunityArchiveInfo, err := m.persistence.HasCommunityArchiveInfo(community.ID())
   if err != nil {
     return nil, err
   }
 
   cdMagnetlinkClock := community.config.CommunityDescription.MagnetlinkClock
-  if (cdMagnetlinkClock > magnetlinkClock) {
-    err = m.persistence.UpdateMagnetlinkMessageClock(community.ID(), cdMagnetlinkClock)
+  if !hasCommunityArchiveInfo {
+    err = m.persistence.SaveCommunityArchiveInfo(community.ID(), cdMagnetlinkClock, 0)
     if err != nil {
       return nil, err
+    }
+  } else {
+    magnetlinkClock, err := m.persistence.GetMagnetlinkMessageClock(community.ID())
+    if err != nil {
+      return nil, err
+    }
+    if (cdMagnetlinkClock > magnetlinkClock) {
+      err = m.persistence.UpdateMagnetlinkMessageClock(community.ID(), cdMagnetlinkClock)
+      if err != nil {
+        return nil, err
+      }
     }
   }
 
