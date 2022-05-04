@@ -43,6 +43,7 @@ type Manager struct {
 	ensVerifier                  *ens.Verifier
 	identity                     *ecdsa.PublicKey
 	logger                       *zap.Logger
+	archiveLogger                *zap.Logger
 	transport                    *transport.Transport
 	quit                         chan struct{}
 	torrentConfig                *params.TorrentConfig
@@ -64,8 +65,16 @@ func NewManager(identity *ecdsa.PublicKey, db *sql.DB, logger *zap.Logger, verif
 		}
 	}
 
+	lc := zap.NewDevelopmentConfig()
+	lc.OutputPaths = []string{"stdout"}
+	archiveLogger, err := lc.Build()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create a archive logger")
+	}
+
 	manager := &Manager{
 		logger:              logger,
+		archiveLogger:       archiveLogger,
 		identity:            identity,
 		quit:                make(chan struct{}),
 		transport:           transport,
@@ -196,7 +205,7 @@ func (m *Manager) StartTorrentClient() error {
 		}
 	}
 
-	m.logger.Info("Starting torrent client", zap.Any("port", m.torrentConfig.Port))
+	m.archiveLogger.Info("starting torrent client", zap.Any("port", m.torrentConfig.Port))
 	// Instantiating the client will make it bootstrap and listen eagerly,
 	// so no go routine is needed here
 	client, err := torrent.NewClient(config)
@@ -210,7 +219,7 @@ func (m *Manager) StartTorrentClient() error {
 func (m *Manager) StopTorrentClient() []error {
 	if m.TorrentClientStarted() {
 		m.StopHistoryArchiveTasksIntervals()
-		m.logger.Info("Stopping torrent client")
+		m.archiveLogger.Info("stopping torrent client")
 		errs := m.torrentClient.Close()
 		if len(errs) > 0 {
 			return errs
@@ -1240,7 +1249,7 @@ func (m *Manager) StartHistoryArchiveTasksInterval(community *Community, interva
 	_, exists := m.historyArchiveTasks[id]
 
 	if exists {
-		m.logger.Debug("History archive tasks interval already runs for community: ", zap.Any("id", id))
+		m.archiveLogger.Debug("history archive tasks interval already runs for community: ", zap.Any("id", id))
 		return
 	}
 
@@ -1251,11 +1260,11 @@ func (m *Manager) StartHistoryArchiveTasksInterval(community *Community, interva
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	m.logger.Debug("Starting history archive tasks interval", zap.Any("id", id))
+	m.archiveLogger.Debug("starting history archive tasks interval", zap.Any("id", id))
 	for {
 		select {
 		case <-ticker.C:
-			m.logger.Debug("Executing history archive tasks", zap.Any("id", id))
+			m.archiveLogger.Debug("executing history archive tasks", zap.Any("id", id))
 			lastArchiveEndDateTimestamp, err := m.GetHistoryArchivePartitionStartTimestamp(community.ID())
 			if err != nil {
 				m.logger.Debug("failed to get last archive end date", zap.Error(err))
@@ -1305,7 +1314,7 @@ func (m *Manager) StopHistoryArchiveTasksIntervals() {
 func (m *Manager) StopHistoryArchiveTasksInterval(communityID types.HexBytes) {
 	task, ok := m.historyArchiveTasks[communityID.String()]
 	if ok {
-		m.logger.Info("Stopping history archive tasks interval", zap.Any("id", communityID.String()))
+		m.archiveLogger.Info("stopping history archive tasks interval", zap.Any("id", communityID.String()))
 		close(task)
 	}
 }
@@ -1367,7 +1376,7 @@ func (m *Manager) CreateHistoryArchiveTorrent(communityID types.HexBytes, topics
 		CommunityID: communityID.String(),
 	}})
 
-	m.logger.Debug("Creating archives...",
+	m.archiveLogger.Debug("creating archives...",
 		zap.Any("startDate", startDate),
 		zap.Any("endDate", endDate),
 		zap.Duration("partition", partition),
@@ -1376,7 +1385,7 @@ func (m *Manager) CreateHistoryArchiveTorrent(communityID types.HexBytes, topics
 		if from.Equal(endDate) || from.After(endDate) {
 			break
 		}
-		m.logger.Debug("Creating message archive",
+		m.archiveLogger.Debug("creating message archive",
 			zap.Duration("partition", partition),
 			zap.Any("from", from),
 			zap.Any("to", to),
@@ -1388,7 +1397,7 @@ func (m *Manager) CreateHistoryArchiveTorrent(communityID types.HexBytes, topics
 
 		if len(messages) == 0 {
 			// No need to create an archive with zero messages
-			m.logger.Debug("No messages in this partition")
+			m.archiveLogger.Debug("no messages in this partition")
 			from = to
 			to = to.Add(partition)
 			if to.After(endDate) {
@@ -1508,7 +1517,7 @@ func (m *Manager) CreateHistoryArchiveTorrent(communityID types.HexBytes, topics
 			},
 		})
 	} else {
-		m.logger.Debug("No archives created")
+		m.archiveLogger.Debug("no archives created")
 		m.publish(&Subscription{
 			NoHistoryArchivesCreatedSignal: &signal.NoHistoryArchivesCreatedSignal{
 				CommunityID: communityID.String(),
@@ -1568,8 +1577,8 @@ func (m *Manager) SeedHistoryArchiveTorrent(communityID types.HexBytes) error {
 			CommunityID: communityID.String(),
 		},
 	})
-	m.logger.Info("Seeding torrent", zap.String("id", id))
-	m.logger.Info(metaInfo.Magnet(nil, &info).String())
+	m.archiveLogger.Info("seeding torrent", zap.String("id", id))
+	m.archiveLogger.Info(metaInfo.Magnet(nil, &info).String())
 	return nil
 }
 
@@ -1580,7 +1589,7 @@ func (m *Manager) UnseedHistoryArchiveTorrent(communityID types.HexBytes) {
 	if exists {
 		torrent, ok := m.torrentClient.Torrent(hash)
 		if ok {
-			m.logger.Debug("Unseeding and dropping torrent for community: ", zap.Any("id", id))
+			m.archiveLogger.Debug("unseeding and dropping torrent for community: ", zap.Any("id", id))
 			torrent.Drop()
 			delete(m.torrentTasks, id)
 
@@ -1608,7 +1617,7 @@ func (m *Manager) DownloadHistoryArchivesByMagnetlink(communityID types.HexBytes
 		return nil, err
 	}
 
-	m.logger.Debug("adding torrent via magnetlink for community", zap.String("id", id), zap.String("magnetlink", magnetlink))
+	m.archiveLogger.Debug("adding torrent via magnetlink for community", zap.String("id", id), zap.String("magnetlink", magnetlink))
 	torrent, err := m.torrentClient.AddMagnet(magnetlink)
 	if err != nil {
 		return nil, err
@@ -1629,7 +1638,7 @@ func (m *Manager) DownloadHistoryArchivesByMagnetlink(communityID types.HexBytes
 
 		indexFile := files[i]
 		indexFile.Download()
-		m.logger.Debug("downloading history archive index")
+		m.archiveLogger.Debug("downloading history archive index")
 
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
@@ -1657,7 +1666,7 @@ func (m *Manager) DownloadHistoryArchivesByMagnetlink(communityID types.HexBytes
 					metadata := index.Archives[hash]
 					hasArchive, err := m.persistence.HasMessageArchiveID(communityID, hash)
 					if err != nil {
-						m.logger.Debug("Failed to check if has message archive id", zap.Error(err))
+						m.logger.Debug("failed to check if has message archive id", zap.Error(err))
 						continue
 					}
 					if hasArchive {
@@ -1667,8 +1676,8 @@ func (m *Manager) DownloadHistoryArchivesByMagnetlink(communityID types.HexBytes
 					startIndex := int(metadata.Offset) / pieceLength
 					endIndex := startIndex + int(metadata.Size)/pieceLength
 
-					m.logger.Debug("downloading data for message archive", zap.String("hash", hash))
-					m.logger.Debug("pieces (start, end)", zap.Any("startIndex", startIndex), zap.Any("endIndex", endIndex-1))
+					m.archiveLogger.Debug("downloading data for message archive", zap.String("hash", hash))
+					m.archiveLogger.Debug("pieces (start, end)", zap.Any("startIndex", startIndex), zap.Any("endIndex", endIndex-1))
 					torrent.DownloadPieces(startIndex, endIndex)
 
 					psc := torrent.SubscribePieceStateChanges()
