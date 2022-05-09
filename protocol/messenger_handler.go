@@ -18,6 +18,8 @@ import (
 	"github.com/status-im/status-go/protocol/communities"
 	"github.com/status-im/status-go/protocol/encryption/multidevice"
 	"github.com/status-im/status-go/protocol/protobuf"
+	localnotifications "github.com/status-im/status-go/services/local-notifications"
+	"github.com/status-im/status-go/signal"
 	v1protocol "github.com/status-im/status-go/protocol/v1"
 )
 
@@ -728,12 +730,18 @@ func (m *Messenger) HandleHistoryArchiveMagnetlinkMessage(state *ReceivedMessage
 					return
 				}
 
-				_, err = m.handleRetrievedMessages(messagesToHandle, false)
+        response, err := m.handleRetrievedMessages(messagesToHandle, false)
 				if err != nil {
 					log.Println("failed to write history archive messages to database", err)
 					m.logger.Debug("failed to write history archive messages to database", zap.Error(err))
 				}
 				m.downloadHistoryArchiveTasksWaitGroup.Done()
+        if !response.IsEmpty() {
+          notifications := response.Notifications()
+          response.ClearNotifications()
+          signal.SendNewMessages(response)
+          localnotifications.PushMessages(notifications)
+        }
 			}()
 
 			return m.communitiesManager.UpdateMagnetlinkMessageClock(id, clock)

@@ -1703,13 +1703,13 @@ func (m *Manager) DownloadHistoryArchivesByMagnetlink(communityID types.HexBytes
 						m.logger.Debug("couldn't save message archive ID", zap.Error(err))
 						continue
 					}
-					m.publish(&Subscription{
-						HistoryArchiveDownloadedSignal: &signal.HistoryArchiveDownloadedSignal{
-							CommunityID: communityID.String(),
-							From:        int(metadata.Metadata.From),
-							To:          int(metadata.Metadata.To),
-						},
-					})
+					// m.publish(&Subscription{
+					// 	HistoryArchiveDownloadedSignal: &signal.HistoryArchiveDownloadedSignal{
+					// 		CommunityID: communityID.String(),
+					// 		From:        int(metadata.Metadata.From),
+					// 		To:          int(metadata.Metadata.To),
+					// 	},
+					// })
 				}
 				m.publish(&Subscription{
 					HistoryArchivesSeedingSignal: &signal.HistoryArchivesSeedingSignal{
